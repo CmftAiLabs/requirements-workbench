@@ -1,0 +1,95 @@
+.suggestion-editor {
+ display:grid;
+ gap:6px;
+ min-width:0;
+ margin:8px 0;
+}
+.suggestion-editor-before,
+.suggestion-editor-after {
+ min-width:0;
+ padding:9px 10px;
+ border:1px solid #dce6f1;
+ border-radius:6px;
+ background:#f5f7fb;
+}
+.suggestion-editor-before > span {
+ display:block;
+ margin-bottom:3px;
+ color:var(--text-secondary);
+ font-size:var(--font-size-meta);
+}
+.suggestion-editor-before > p,
+.suggestion-editor-after > p {
+ white-space:pre-wrap;
+ overflow-wrap:anywhere;
+ color:var(--text-secondary);
+ font-size:var(--font-size-control);
+ line-height:1.75;
+}
+.suggestion-editor-after {
+ border-color:#c5dcf5;
+ background:#edf5ff;
+}
+.suggestion-editor-heading {
+ display:flex;
+ align-items:center;
+ justify-content:space-between;
+ flex-wrap:wrap;
+ gap:4px 9px;
+ margin-bottom:4px;
+}
+.suggestion-editor-heading > strong {
+ color:var(--brand-primary);
+ font-size:var(--font-size-meta);
+ font-weight:600;
+}
+.suggestion-editor .text-button {
+ min-height:24px;
+ font-size:var(--font-size-meta);
+ line-height:1.5;
+}
+.suggestion-editor textarea {
+ display:block;
+ width:100%;
+ min-height:100px;
+ max-height:260px;
+ margin:5px 0 0;
+ padding:8px;
+ border-color:#b8cee8;
+ background:#fff;
+ font:inherit;
+ font-size:var(--font-size-control);
+ line-height:1.75;
+ resize:vertical;
+}
+.suggestion-editor-reset {
+ margin-top:5px;
+}
+.suggestion-editor.is-adjusted .suggestion-editor-after {
+ border-color:#d9cfee;
+ background:#f5f1fc;
+}
+.suggestion-editor.is-adjusted .suggestion-editor-heading > strong {
+ color:var(--accent-purple);
+}
+.suggestion-editor-hint,
+.suggestion-editor-disabled,
+.suggestion-editor-empty {
+ display:block;
+ font-size:var(--font-size-meta);
+ line-height:1.65;
+ overflow-wrap:anywhere;
+}
+.suggestion-editor-hint,
+.suggestion-editor-disabled {
+ color:var(--text-secondary);
+}
+.suggestion-editor-empty {
+ margin-top:5px;
+ color:var(--status-danger);
+}
+.suggestion-editor button:disabled {
+ opacity:1;
+ color:var(--text-muted);
+ cursor:not-allowed;
+}

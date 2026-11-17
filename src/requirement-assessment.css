@@ -1,0 +1,16 @@
+.co-assessment{padding:16px;border:1px solid var(--brand-border);border-radius:var(--radius-surface);background:var(--bg-surface);overflow-wrap:anywhere;min-width:0}
+.co-assessment-status{display:flex;align-items:center;gap:8px;color:var(--brand-primary)}
+.co-assessment p{white-space:pre-wrap;line-height:1.65;margin:10px 0}
+.co-assessment small{display:block;color:var(--text-muted);line-height:1.6}
+.co-assessment-details{margin:14px 0;border-top:1px solid var(--border-base);padding-top:12px}
+.co-assessment-details>summary{cursor:pointer;color:var(--brand-primary);font-weight:600;line-height:1.6}
+.co-assessment-details>small{margin-top:12px}
+.co-assessment-details section{margin-top:16px}
+.co-assessment-details h3{font-size:var(--font-size-body);margin:0;color:var(--text-primary)}
+.co-assessment-reason{color:var(--text-secondary)}
+.co-assessment-option{padding:12px;margin-top:8px;background:var(--bg-subtle);border-radius:var(--radius-control)}
+.co-assessment-details ul{padding-left:20px;line-height:1.65}
+.co-assessment-old{margin-top:8px;color:var(--status-warning)!important}
+.co-assessment .co-question{margin:12px 0;padding:12px;border-radius:var(--radius-control);background:var(--bg-subtle)}
+.co-assessment button:focus-visible,.co-assessment summary:focus-visible{outline:2px solid var(--brand-primary);outline-offset:3px}
+@media(max-width:650px){.co-assessment{padding:12px}}

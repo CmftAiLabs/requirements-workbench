@@ -1,0 +1,58 @@
+{
+  "name": "requirements-workbench",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "dev": "node --env-file=.env --import tsx --watch server/index.ts",
+    "start": "node --env-file=.env --import tsx server/index.ts",
+    "build": "tsc --noEmit && vite build",
+    "test": "tsx --test tests/*.test.ts",
+    "model:check": "node --env-file=.env --import tsx scripts/check-model.ts",
+    "discussion:check": "node --env-file=.env --import tsx scripts/check-discussion-regression.ts",
+    "discussion:queue-check": "node --env-file=.env --import tsx scripts/check-discussion-queue.ts",
+    "db:up": "docker compose up -d db",
+    "db:down": "docker compose stop db",
+    "local:up": "node scripts/local.mjs start",
+    "local:stop": "node scripts/local.mjs stop",
+    "demo:setup": "docker build -t requirements-demo-runner:1 scripts/demo-runner",
+    "demo:verify": "node --env-file=.env --import tsx scripts/check-demo-runner.ts",
+    "load:test": "node --import tsx scripts/load-test.ts",
+    "demo:verify-modules": "node --env-file=.env --import tsx scripts/check-modular-demo.ts"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/multipart": "^9.3.0",
+    "@fastify/static": "^8.3.0",
+    "@mastra/core": "1.79.0",
+    "docx": "^9.15.2",
+    "dotenv": "^17.2.3",
+    "exceljs": "^4.4.0",
+    "fastify": "5.12.7",
+    "fflate": "^0.8.3",
+    "lucide-react": "^0.577.0",
+    "mammoth": "^1.11.0",
+    "pdf-parse": "^2.4.5",
+    "pg": "^8.16.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "sharp": "^0.35.5",
+    "yauzl": "^3.4.0",
+    "zod": "^4.1.12"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "@types/pg": "^8.15.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "@types/yauzl": "^3.4.0",
+    "@vitejs/plugin-react": "^6.0.0",
+    "tsx": "^4.20.0",
+    "typescript": "^5.9.0",
+    "vite": "8.3.5"
+  },
+  "packageManager": "pnpm@10.33.0"
+}

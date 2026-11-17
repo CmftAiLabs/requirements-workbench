@@ -1,0 +1,20 @@
+需求协作平台 · 本地部署说明
+
+运行环境：Node.js 24+、pnpm 10、Docker Compose v2。
+
+首次安装：
+1. pnpm install --frozen-lockfile
+2. 参考 .env.example 配置 .env，设置自己的数据库、会话密钥和模型网关。
+3. pnpm demo:setup
+4. pnpm build
+5. pnpm local:up
+
+本机升级继续使用原有 .env、数据库卷及 data/，不要用转发包的空库或案例数据库覆盖。
+访问 http://127.0.0.1:4318，首次使用请新建项目并上传材料。
+公开仓库不包含既有项目、上传材料、聊天记录、生成原型、验收数据库或密钥。
+
+更新源码后：pnpm build，再执行 pnpm local:stop 和 pnpm local:up。
+停止应用：pnpm local:stop；数据库与项目资料保留。
+
+验证：pnpm test、pnpm build、pnpm demo:verify-modules。
+模型请求使用服务端配置；密钥不得写入浏览器或导出文件。
