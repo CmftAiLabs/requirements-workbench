@@ -13,6 +13,7 @@ import {readFile,rm} from 'node:fs/promises';
 import path from 'node:path';
 import {z,ZodError} from 'zod';
 import {config} from './config.js';
+import {requestAccessError,proxyTokenMatches} from './request-policy';
 import {pool,listProjects,insertProject,getProject,getWorkspaceProject,getPreviewProject,getArtifactProject,appendDiscussion,messagePage,mutateProject,listJobs,newJob,putJob,ConflictError} from './store.js';
 import {createProject,applyAction,attachIntakeBatch,attachIntakeRefinement,attachSuggestion,buildMarkdown,beginDelivery} from './domain.js';
 import {probeModel,extractIntakeRequirements,refineIntakeRequirement,suggestChanges,suggestModuleGrouping} from './ai.js';
@@ -121,12 +122,10 @@ export async function buildApp(){
  await app.register(multipart,{limits:{fileSize:MAX_ARCHIVE_BYTES,files:1,fields:10}});
  app.addHook('onRequest',async(req,reply)=>{
   requestStarts.set(req,performance.now());
+  if(!proxyTokenMatches(config.proxyAccessToken,req.headers['x-workbench-token']))return reply.code(401).send({error:'请通过工作台入口访问。'});
   const host=req.headers.host||'';
-  if(!/^(localhost|127\.0\.0\.1)(:\d+)?$/.test(host))return reply.code(403).send({error:'本地版本只接受 localhost 或 127.0.0.1。'});
-  if(req.method!=='GET'&&req.method!=='HEAD'){
-   const origin=req.headers.origin;
-   if(origin&&origin!==`http://${host}`)return reply.code(403).send({error:'请求来源不匹配，请从本地工作台发起操作。'});
-  }
+  const error=requestAccessError(req.method,host,req.headers.origin,config.publicOrigin,req.headers['sec-fetch-site'] as string|undefined);
+  if(error)return reply.code(403).send({error});
  });
  app.addHook('onSend',async(req,reply,payload)=>{
   reply.header('X-Content-Type-Options','nosniff').header('Referrer-Policy','same-origin');
@@ -175,7 +174,7 @@ export async function buildApp(){
   const projects=await listProjects(),id=query.projectId||projects[0]?.id;
   if(!id)throw new Error('尚无项目');
   const row=(await pool.query("SELECT view_stamp AS stamp FROM projects WHERE id=$1",[id])).rows[0];if(!row)throw Object.assign(new Error('项目不存在'),{statusCode:404});
-  const jobs=await listJobs(id),person=participantOf(req),settings={model:config.model,modelConfigured:config.modelConfigured,knowledgeConfigured:!!config.targets.knowledge.url,teammateConfigured:!!config.targets.teammate.url,localOnly:true};
+  const jobs=await listJobs(id),person=participantOf(req),settings={model:config.model,modelConfigured:config.modelConfigured,knowledgeConfigured:!!config.targets.knowledge.url,teammateConfigured:!!config.targets.teammate.url,localOnly:!config.publicOrigin};
   const context=`${id}:${person.id}`,signature=digest({stamp:row.stamp,jobs,projects,settings});
   return sync(context,signature,query.cursor,async previous=>({projects,project:await getWorkspaceProject(id,previous?.project),jobs,role:person.role,participantId:person.id,config:settings}));
  });
@@ -183,13 +182,13 @@ export async function buildApp(){
   const input=z.object({role:z.enum(['pm','business']).optional(),participantId:z.enum(['pm','business','business-sales','business-operations']).optional()}).strict().refine(value=>value.role||value.participantId,'请选择参与人员').parse(req.body);
   const person=participantById(input.participantId||defaultParticipantId(input.role!))!;
   if(input.role&&input.role!==person.role)throw new Error('人员与角色不匹配');
-  const options={signed:true,httpOnly:true,sameSite:'strict' as const,path:'/',maxAge:7*24*3600};
+  const options={signed:true,httpOnly:true,secure:!!config.publicOrigin,sameSite:'strict' as const,path:'/',maxAge:7*24*3600};
   reply.setCookie('role',person.role,options);reply.setCookie('participant',person.id,options);return {role:person.role,participantId:person.id};
  });
  app.get('/api/bootstrap',async(req)=>{
   const projects=await listProjects();const q=req.query as {projectId?:string};
   const project=await getProject(q.projectId||projects[0].id);
-  return {projects,project,role:roleOf(req),participantId:participantOf(req).id,jobs:await listJobs(project.id),config:{model:config.model,modelConfigured:config.modelConfigured,knowledgeConfigured:!!config.targets.knowledge.url,teammateConfigured:!!config.targets.teammate.url,localOnly:true}};
+  return {projects,project,role:roleOf(req),participantId:participantOf(req).id,jobs:await listJobs(project.id),config:{model:config.model,modelConfigured:config.modelConfigured,knowledgeConfigured:!!config.targets.knowledge.url,teammateConfigured:!!config.targets.teammate.url,localOnly:!config.publicOrigin}};
  });
  app.post('/api/projects',async(req)=>{requirePM(req);const {name}=z.object({name:z.string().trim().min(1).max(100)}).parse(req.body);const p=createProject(name);p.materials=[];return insertProject(p)});
  app.post('/api/examples/crm',async req=>{requirePM(req);return insertProject(createCRMExperience())});

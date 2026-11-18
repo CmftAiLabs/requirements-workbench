@@ -94,6 +94,22 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       throw new Error('独立集成测试后台任务未结束');
     };
 
+    await t.test('HTTPS 公网会话、跨站保护和入口令牌校验',async()=>{
+      const saved={publicOrigin:config.publicOrigin,proxyAccessToken:config.proxyAccessToken};
+      try{
+        config.publicOrigin='https://prototype.ai-native-lab.com';config.proxyAccessToken='integration-gateway-secret-only-for-testing';
+        const headers={host:'prototype.ai-native-lab.com',origin:config.publicOrigin,'x-workbench-token':config.proxyAccessToken};
+        assert.equal((await app!.inject({url:'/api/health',headers:{host:headers.host}})).statusCode,401);
+        assert.equal((await app!.inject({url:'/api/health',headers:{...headers,host:'evil.test'}})).statusCode,403);
+        assert.equal((await app!.inject({method:'POST',url:'/api/session',headers:{...headers,origin:'https://evil.test'},payload:{role:'pm'}})).statusCode,403);
+        const response=await app!.inject({method:'POST',url:'/api/session',headers,payload:{role:'pm'}});
+        assert.equal(response.statusCode,200);
+        const cookies=response.headers['set-cookie'];
+        for(const cookie of Array.isArray(cookies)?cookies:[cookies!]){assert.match(cookie,/; Secure/);assert.match(cookie,/; HttpOnly/);assert.match(cookie,/; SameSite=Strict/i);}
+        assert.equal((await app!.inject({url:'/api/bootstrap',headers})).json().config.localOnly,false);
+      }finally{Object.assign(config,saved);}
+    });
+
     await t.test('模型目录、角色权限、活动任务保护和持久化选择',async()=>{
       const {currentModel,setSelectedModel}=await import('../server/model-settings');
       const original=currentModel();

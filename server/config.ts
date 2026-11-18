@@ -2,8 +2,11 @@ import {currentModel} from './model-settings';
 import 'dotenv/config';
 import path from 'node:path';
 import { mkdirSync } from 'node:fs';
+import {normalizePublicOrigin} from './request-policy';
 export const config = {
- port:Number(process.env.PORT||4318),host:'127.0.0.1',
+ port:Number(process.env.PORT||4318),host:process.env.HOST||'127.0.0.1',
+ publicOrigin:normalizePublicOrigin(process.env.PUBLIC_ORIGIN),
+ proxyAccessToken:process.env.PROXY_ACCESS_TOKEN||'',
  databaseUrl:process.env.DATABASE_URL||'',sessionSecret:process.env.SESSION_SECRET||'',
  get model(){return currentModel()},modelConfigured:!!process.env.MODEL_API_KEY,
  dataDir:path.resolve('data'),
@@ -16,4 +19,5 @@ for(const dir of ['materials','receipts/knowledge','receipts/teammate']) mkdirSy
 export function validateConfig(){
  if(!config.databaseUrl)throw new Error('请配置 DATABASE_URL');
  if(config.sessionSecret.length<32)throw new Error('请配置至少32字符的 SESSION_SECRET');
+ if(config.publicOrigin&&config.proxyAccessToken.length<32)throw new Error('公网部署请配置至少32字符的 PROXY_ACCESS_TOKEN，并由认证入口覆盖同名请求头。');
 }

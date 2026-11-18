@@ -57,8 +57,12 @@ async function runArtifact(projectId:string,artifactId:string,files:Record<strin
  await writeFile(path.join(dir,'sources.json'),JSON.stringify(files));await writeFile(path.join(dir,'proposal.json'),JSON.stringify(proposal));
  }
  const name='requirements-demo-'+randomUUID();
+ // Linux bind mounts preserve numeric ownership. Match the service account so
+ // the application can update runner reports; never run generated code as root.
+ const hostUid=process.getuid?.()??1000;
+ const runnerUid=hostUid===0?1000:hostUid,runnerGid=hostUid===0?1000:(process.getgid?.()??1000);
  try{
-  await docker(['run','--rm','--init','--name',name,'--network','none','--cap-drop','ALL','--security-opt','no-new-privileges','--memory','1024m','--cpus','2','--pids-limit','180','--read-only','--tmpfs','/tmp:rw,size=512m','--tmpfs','/work:rw,size=128m,uid=1000,gid=1000','--mount',`type=bind,source=${input},target=/input,readonly`,'--mount',`type=bind,source=${output},target=/output`,runnerImage(),mode]);
+  await docker(['run','--rm','--init','--name',name,'--user',`${runnerUid}:${runnerGid}`,'--network','none','--cap-drop','ALL','--security-opt','no-new-privileges','--memory','1024m','--cpus','2','--pids-limit','180','--read-only','--tmpfs','/tmp:rw,size=512m','--tmpfs',`/work:rw,size=128m,uid=${runnerUid},gid=${runnerGid}`,'--mount',`type=bind,source=${input},target=/input,readonly`,'--mount',`type=bind,source=${output},target=/output`,runnerImage(),mode]);
  }catch(error){
   let reason='',bindingFailure:DemoBindingCheckError|undefined;
   try{const report=JSON.parse(await readFile(reportPath,'utf8'));reason=report.errors?.join('\n')||'';
