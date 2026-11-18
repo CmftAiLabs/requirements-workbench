@@ -3,8 +3,8 @@ import {ArrowUp,FileText,LoaderCircle,Paperclip,Sparkles,X} from 'lucide-react';
 import {CHAT_FILE_ACCEPT,CHAT_MAX_BYTES,CHAT_MAX_FILES} from '../shared/chat-attachments';
 import './chat-materials.css';
 
-type Props={assistantAvailable?:boolean;text:string;setText:(value:string)=>void;inputRef:RefObject<HTMLTextAreaElement|null>;disabledReason:string;attachmentReason:string;hint:string;quickActions:ReactNode;reply?:string;clearReply:()=>void;sendText:()=>Promise<void>;sendMaterials:(data:FormData)=>Promise<boolean>};
-export function ChatComposer({assistantAvailable=true,text,setText,inputRef,disabledReason,attachmentReason,hint,quickActions,reply,clearReply,sendText,sendMaterials}:Props){
+type Props={assistantAvailable?:boolean;text:string;setText:(value:string)=>void;inputRef:RefObject<HTMLTextAreaElement|null>;disabledReason:string;attachmentReason:string;hint:string;quickActions:ReactNode;modelPicker?:ReactNode;reply?:string;clearReply:()=>void;sendText:()=>Promise<void>;sendMaterials:(data:FormData)=>Promise<boolean>};
+export function ChatComposer({assistantAvailable=true,text,setText,inputRef,disabledReason,attachmentReason,hint,quickActions,modelPicker,reply,clearReply,sendText,sendMaterials}:Props){
  const [files,setFiles]=useState<File[]>([]),[notice,setNotice]=useState(''),[uploading,setUploading]=useState(false),[drag,setDrag]=useState(false);
  const picker=useRef<HTMLInputElement>(null),composing=useRef(false),sending=useRef(false),requestId=useRef(''),mounted=useRef(true);
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
@@ -53,7 +53,8 @@ export function ChatComposer({assistantAvailable=true,text,setText,inputRef,disa
    <div className="co-input-bottom"><div className="co-compose-tools">
     <input ref={picker} className="visually-hidden" type="file" multiple disabled={!!disabledReason||!!attachmentReason||uploading} accept={CHAT_FILE_ACCEPT} aria-label="选择沟通材料" onChange={e=>{if(e.target.files)add(e.target.files);e.target.value='';}}/>
     <button type="button" className="co-attach-button" aria-label="添加材料" disabled={!!disabledReason||!!attachmentReason||uploading} title={disabledReason||attachmentReason||'添加文档、图片或 ZIP，也可拖入或粘贴图片'} onClick={()=>picker.current?.click()}><Paperclip size={16}/></button>
-    <button type="button" className="co-mention" disabled={!!disabledReason||uploading} title={disabledReason||'提问需求助手'} onClick={()=>{setText(text.includes('@Agent')?text:'@Agent '+text);inputRef.current?.focus();}}><Sparkles size={13}/>@Agent</button>
+    <button type="button" className="co-mention" aria-label="提问 Agent" disabled={!!disabledReason||uploading} title={disabledReason||'提问需求助手'} onClick={()=>{setText(text.includes('@Agent')?text:'@Agent '+text);inputRef.current?.focus();}}><Sparkles size={13}/><span>@Agent</span></button>
+    {modelPicker}
    </div><span>{uploading?'正在发送材料…':'Enter 发送 · Shift + Enter 换行'}</span><button className="co-send" disabled={!!disabledReason||!!files.length&&!!attachmentReason||uploading||!text.trim()&&!files.length} title={disabledReason||(files.length?attachmentReason:'')||'发送'} aria-label="发送">{uploading?<LoaderCircle size={17} className="spin"/>:<ArrowUp size={18}/>}</button></div>
   </div>
  </form>;

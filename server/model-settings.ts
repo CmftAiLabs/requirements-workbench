@@ -1,10 +1,11 @@
 // Gateway IDs are case-sensitive. A catalog entry is not a capability claim.
 export const MODEL_OPTIONS=[
+ 'glm-5.3','gpt-6-astra','gpt-6.1-sol',
  'deepseek-v4.1-flash-1017','cmft-qwen3.8-flash-next','CMFT-glm-5.3-flash',
- 'cmhk-deepseek-v4-flash','qwen3.8-max','glm-5.3','kimi-k3.1-pro','gpt-6-sol','claude-opus-5-5',
+ 'cmhk-deepseek-v4-flash','qwen3.8-max','kimi-k3.1-pro','gpt-6-sol','claude-opus-5-5',
 ] as const;
 let selected:string|undefined;
-export const currentModel=()=>selected||process.env.MODEL_NAME||'kimi-k3.1-pro';
+export const currentModel=()=>selected||process.env.MODEL_NAME||'glm-5.3';
 export const visionModel=()=>process.env.VISION_MODEL_NAME||process.env.MODEL_NAME||'kimi-k3.1-pro';
 export const modelOptions=()=>[...new Set<string>([...MODEL_OPTIONS,currentModel()])];
 export function setSelectedModel(value:string|undefined){selected=value;}

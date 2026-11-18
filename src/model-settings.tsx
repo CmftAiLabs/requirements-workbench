@@ -1,6 +1,22 @@
 import {useEffect,useState} from 'react';
+import {ChevronDown,LoaderCircle} from 'lucide-react';
 import {WorkspaceModal} from './workspace-ui';
 type Settings={model:string;options:string[];policies:Record<string,string>;visionModel:string};
+type Request=<T>(url:string,data?:unknown)=>Promise<T>;
+export function ModelPicker({model,request,save,disabledReason,onSettings}:{model:string;request:Request;save:(model:string)=>Promise<boolean>;disabledReason:string;onSettings:()=>void}){
+ const [options,setOptions]=useState<string[]>([]),[saving,setSaving]=useState(false);
+ useEffect(()=>{let live=true;request<Settings>('/api/models').then(s=>{if(live)setOptions(s.options);}).catch(()=>{});return()=>{live=false;};},[request]);
+ const reason=disabledReason||(saving?'正在切换模型…':'');
+ const choices=[...new Set([...options,model])];
+ return <span className="co-model-picker" title={reason||`当前模型：${model}。切换应用于整个工作台的后续需求分析与原型生成。`}>
+  <span className="co-model-name-width" aria-hidden="true">{model}</span>
+  <select aria-label="选择对话模型" value={model} disabled={!!reason} onChange={async e=>{
+   const value=e.target.value;if(value==='__settings__'){onSettings();return;}if(value===model||reason)return;
+   setSaving(true);try{await save(value);}finally{setSaving(false);}
+  }}><optgroup label="需求助手模型">{choices.map(value=><option key={value} value={value}>{value}</option>)}</optgroup><option value="__settings__">模型设置与连接检查…</option></select>
+  {saving?<LoaderCircle size={12} className="spin" aria-hidden="true"/>:<ChevronDown size={12} aria-hidden="true"/>}
+ </span>;
+}
 export function ModelSettings({request,save,canEdit,onClose}:{request:<T>(url:string,data?:unknown)=>Promise<T>;save:(model:string)=>Promise<boolean>;canEdit:boolean;onClose:()=>void}){
  const [settings,setSettings]=useState<Settings>(),[selected,setSelected]=useState(''),[busy,setBusy]=useState(false),[message,setMessage]=useState('');
  useEffect(()=>{let live=true;request<Settings>('/api/models').then(s=>{if(live){setSettings(s);setSelected(s.model);}}).catch(()=>{if(live)setMessage('模型设置读取失败，请关闭后重试。');});return()=>{live=false;};},[request]);
