@@ -29,7 +29,7 @@ export function DemoPreview({project:p,card:c,running,expanded,onExpand,onManage
  const verification=generated?.revision?.verification;
  const checkLabel=verification?.status==='pending'?'检查中':verification?.status==='needs-attention'?'待核对':verification?.status==='interrupted'?'检查中断':'检查完成';
  // Keep the trusted shell and its in-memory business data across compatible updates.
- const shellSource=useMemo(()=>({url:generated?.url,key:generated?.revision?.artifactId}),[p.id,generated?.revision?.businessContract?.source,!!generated?.revision?.modules,reset]);
+ const shellSource=useMemo(()=>({url:generated?.url,key:generated?.revision?.artifactId}),[p.id,generated?.revision?.businessContract?.runtimeKey||generated?.revision?.businessContract?.source,!!generated?.revision?.modules,reset]);
  useEffect(()=>{sendModules();},[generated?.revision]);
  const hasChanges=!!generated?.revision||!!update?.changes.length;
  const closeChanges=(restoreFocus=false)=>{setChangesOpen(false);if(restoreFocus)changeButton.current?.focus();};

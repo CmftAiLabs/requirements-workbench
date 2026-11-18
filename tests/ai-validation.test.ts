@@ -1240,3 +1240,25 @@ test('项目业务契约只规划一次，同一输入直接复用，规则调�
   assert.deepEqual(c.approvals,{});
  });
 });
+
+test('新增业务字段与页面补丁在一次模型响应中合并，正式需求和只读运行代码不变',async()=>{
+ const {generateDemoCode,BusinessContractChangeRequired}=await import('../server/demo-generator');
+ const {prototypeStateSource,prototypePersona}=await import('../shared/prototype-shell');
+ const p=createProject('字段新增');p.cards=[structuredClone(card)];const before=structuredClone(p);
+ const business={inputKey:'old',summary:'共享记录',source:"import {usePrototypeState} from './prototype-state'; export interface Entry{id:string} export interface BusinessState{entries:Entry[]} export const initialBusinessState:BusinessState={entries:[]}; export function useBusinessState(){return usePrototypeState<BusinessState>('shared.business',initialBusinessState)}"};
+ const app="import React from 'react';import{useBusinessState}from './prototype-business';export default function App(){const[state]=useBusinessState();return <form data-testid='form'>记录</form>}";
+ const previous={'src/App.tsx':app,'src/styles.css':'body{color:blue}','src/prototype-state.ts':prototypeStateSource,'src/prototype-business.ts':business.source};
+ const proposal={summary:'原记录',files:[],deletePaths:[],bindings:[{cardId:card.id,testId:'form',field:'data' as const}],checks:[],assumptions:[]};
+ const context={id:'module-1111111111111111',name:'记录',persona:prototypePersona,common:[],catalog:[],viewport:{width:1280,height:756},businessContract:business,previewOnly:true,allowContractRequest:true,previousProposal:proposal};
+ const output={summary:'增加引用号',files:[],edits:[{path:'src/App.tsx',search:'记录</form>',replace:'记录<input data-testid="reference"/></form>'}],businessFieldAdditions:[{entity:'Entry',name:'reference',type:'string'}]};
+ await withGateway(()=>({content:JSON.stringify(output)}),async requests=>{
+  const result=await generateDemoCode(p,previous,undefined,undefined,context);assert.equal(requests.length,1);assert.match(result.files['src/prototype-business.ts'],/reference\?: string/);assert.match(result.files['src/App.tsx'],/data-testid="reference"/);assert.deepEqual(result.proposal.bindings,proposal.bindings);assert.deepEqual(p,before);assert.equal(previous['src/prototype-business.ts'],business.source);
+  const prompt=JSON.stringify(requests[0].messages);assert.match(prompt,/同一份代码补丁/);assert.match(prompt,/省略即保留/);assert(!prompt.includes(prototypeStateSource),'不重复传递平台运行实现');
+ });
+ await withGateway(()=>({content:JSON.stringify({needsBusinessContract:true,reason:'新增实体和状态，需要统一定义'})}),async requests=>{
+  await assert.rejects(()=>generateDemoCode(p,previous,undefined,undefined,context),BusinessContractChangeRequired);assert.equal(requests.length,1);
+ });
+ await withGateway(()=>({content:JSON.stringify({...output,files:[{path:'src/prototype-business.ts',content:business.source+';export const unsafe=true'}]})}),async requests=>{
+  await assert.rejects(()=>generateDemoCode(p,previous,undefined,undefined,context),/共享业务契约/);assert.equal(requests.length,2);assert.deepEqual(p,before);
+ });
+});

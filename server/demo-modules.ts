@@ -13,6 +13,7 @@ import {generateDemoCode,BusinessContractChangeRequired,type ModuleContext} from
 import {recordMetric} from './metrics';
 import {prepareBusinessContract} from './demo-business-contract';
 import type {DemoBusinessContract} from '../shared/generated-demo';
+import {businessRuntimeKey,extendBusinessFields,type BusinessFieldAddition} from './demo-business-fields';
 
 export function planDemoModules(p:Project,previous:DemoModule[]=[],businessContract?:DemoBusinessContract,isolateChanges=false){
  const effective=new Map(demoInput(p).cards.map(c=>[c.id,c]));
@@ -22,9 +23,10 @@ export function planDemoModules(p:Project,previous:DemoModule[]=[],businessContr
   const id='module-'+digest(key).slice(0,16),name=key.startsWith('named:')?key.slice(6):p.name;
   // The same overview content participates in project reuse, module reuse and generation.
   const common=demoOverviews(p);
-  return {id,name,cardIds:items.map(c=>c.id),inputKey:digest({name,cards:[...items].sort((a,b)=>a.id.localeCompare(b.id)),common,project:p.name,reference:p.demo||null,contract:digest({source:prototypeStateSource,persona:prototypePersona,business:businessContract?.source||null})}),common,previous:previous.find(m=>m.id===id)};
+  const moduleKey=(business:string|null)=>digest({name,cards:[...items].sort((a,b)=>a.id.localeCompare(b.id)),common,project:p.name,reference:p.demo||null,contract:digest({source:prototypeStateSource,persona:prototypePersona,business})});
+  return {id,name,cardIds:items.map(c=>c.id),inputKey:moduleKey(businessContract?businessRuntimeKey(businessContract):null),legacyInputKey:moduleKey(businessContract?.source||null),common,previous:previous.find(m=>m.id===id)};
  });
- const ids=new Set(plans.map(m=>m.id)),changed=new Set(plans.filter(m=>m.inputKey!==m.previous?.inputKey).map(m=>m.id));
+ const ids=new Set(plans.map(m=>m.id)),changed=new Set(plans.filter(m=>m.inputKey!==m.previous?.inputKey&&m.legacyInputKey!==m.previous?.inputKey).map(m=>m.id));
  for(const m of plans)if(m.previous?.dependencies.some(id=>!ids.has(id)))changed.add(m.id);
  for(let i=0;!isolateChanges&&i<plans.length;i++){let added=false;for(const m of plans)if(!changed.has(m.id)&&m.previous?.dependencies.some(id=>changed.has(id)||!ids.has(id))){changed.add(m.id);added=true;}if(!added)break;}
  return plans.map(m=>({...m,changed:changed.has(m.id)}));
@@ -46,19 +48,21 @@ export async function buildModularDemo(p:Project,prior:DemoRevision|undefined,op
  await options.guard();
  await options.progress('正在核对模块间业务数据');
  const optimistic=!!(options.previewFirst&&prior?.businessContract&&!options.resolvedContract);
- const businessContract=options.resolvedContract||(optimistic?{...prior!.businessContract!,inputKey:demoInputKey(p)}:(!options.generate||options.generate===generateDemoCode)?await modelSlot(()=>prepareBusinessContract(p,prior?.businessContract,options.signal)):prior?.businessContract);
+ const contractStarted=performance.now();
+ let businessContract=options.resolvedContract||(optimistic?{...prior!.businessContract!,inputKey:demoInputKey(p)}:(!options.generate||options.generate===generateDemoCode)?await modelSlot(()=>prepareBusinessContract(p,prior?.businessContract,options.signal)):prior?.businessContract);
+ const contractMs=performance.now()-contractStarted;
  await options.guard();
  const plans=planDemoModules(p,prior?.modules,businessContract,!!options.previewFirst&&!!businessContract),viewport=preferredDemoViewport(p,prior?.viewport),generate=options.generate||generateDemoCode,build=options.build||(options.previewFirst?buildPreview:buildAndCheck);
  const groupAbort=new AbortController(),signal=options.signal?AbortSignal.any([options.signal,groupAbort.signal]):groupAbort.signal;
  const executionPlans=[...plans].sort((a,b)=>Number(b.cardIds.includes(options.requestedCardId||''))-Number(a.cardIds.includes(options.requestedCardId||'')));
- const modules:DemoModule[]=[],proposals=new Map<string,DemoCodeProposal>(),sources:Record<string,string>={},timings=blankTimings();let reused=0,reusedChecks=0;
+ const modules:DemoModule[]=[],proposals=new Map<string,DemoCodeProposal>(),sources:Record<string,string>={},timings:DemoTimings={...blankTimings(),contractMs},additions:BusinessFieldAddition[]=[];let reused=0,reusedChecks=0;
  const runModule=async(plan:(typeof plans)[number])=>{
   await options.guard();let old=plan.previous;let previousFailure:string|undefined;
   if(!plan.changed&&old){
    try{const dir=artifactDir(p.id,old.artifactId),files=await readDemoSource(p.id,old),proposal=await readDemoProposal(p.id,old.artifactId),html=await readFile(path.join(dir,'output/index.html'),'utf8'),report=JSON.parse(await readFile(path.join(dir,'output/report.json'),'utf8').catch(error=>{if(!options.previewFirst)throw error;return readFile(path.join(dir,'output/preview-report.json'),'utf8');}));
     if(report.errors?.length)previousFailure=JSON.stringify({error:report.errors,checks:proposal.checks,instruction:'保留检查意图，只修复本次失败的交互或错误定位。'});
     if(digest(files)!==old.sourceHash||report.sourceHash!==old.sourceHash||digest(html)!==report.htmlHash||!report.build||report.errors.length||report.checks.some((c:{passed:boolean})=>!c.passed))throw Error('缓存产物校验失败');
-    modules.push(old);proposals.set(plan.id,proposal);for(const [file,code]of Object.entries(files))sources[`modules/${plan.id}/${file}`]=code;reused++;reusedChecks+=report.checks.length;recordMetric('demo.module.cache_hit',0);return;}catch(error){previousFailure||=String(error);if(!options.previewFirst)old=undefined;}
+    modules.push({...old,inputKey:plan.inputKey});proposals.set(plan.id,proposal);for(const [file,code]of Object.entries(files))sources[`modules/${plan.id}/${file}`]=code;reused++;reusedChecks+=report.checks.length;recordMetric('demo.module.cache_hit',0);return;}catch(error){previousFailure||=String(error);if(!options.previewFirst)old=undefined;}
   }
   const scoped={...p,cards:p.cards.filter(c=>plan.cardIds.includes(c.id)),materials:[],snapshots:[],deliveries:[],events:[],intakeBatches:[],generatedDemo:undefined};
   const moduleViewport={width:viewport.width,height:Math.max(320,viewport.height-44)},context:ModuleContext={businessContract,previewOnly:!!options.previewFirst,allowContractRequest:optimistic,signal,id:plan.id,name:plan.name,persona:prototypePersona,common:plan.common,catalog:plans.map(m=>({id:m.id,name:m.name})),dependencies:plans.filter(m=>m.id!==plan.id).map(m=>({id:m.id,name:m.name,requirements:demoInput(p).cards.filter(c=>m.cardIds.includes(c.id)).map(({id,title,fields})=>({id,title,fields}))})),viewport:moduleViewport};
@@ -67,12 +71,14 @@ export async function buildModularDemo(p:Project,prior:DemoRevision|undefined,op
   // A legacy single-module application can be migrated without discarding its source.
   if(!old&&prior&&!prior.modules&&plans.length===1)files=await readDemoSource(p.id,prior).catch(()=>({}));
   files={...files,'src/prototype-state.ts':prototypeStateSource,...businessContract?{'src/prototype-business.ts':businessContract.source}:{}};let failure:string|undefined=previousFailure,candidate:Awaited<ReturnType<typeof generateDemoCode>>|undefined;
-  const mt=blankTimings(),moduleStart=performance.now();let attempts=0,bindingRepaired=false;
+  const mt:DemoTimings={...blankTimings(),modelCalls:0,validationRepairs:0},moduleStart=performance.now();let attempts=0,bindingRepaired=false;
+  context.onRepair=()=>{mt.validationRepairs!++;};
   while(attempts<3||candidate){
    await options.guard();
    await options.progress(`${plan.name} · ${attempts?'正在修复交互':'正在生成模块'}（${modules.length+1}/${plans.length}）`);
    if(!candidate){attempts++;bindingRepaired=false;}
-   const queuedAt=performance.now();const result=candidate||await modelSlot(async()=>{await options.guard();const generatedAt=performance.now();mt.queueMs=(mt.queueMs||0)+generatedAt-queuedAt;try{return await generate(scoped,files,failure,async characters=>{await options.progress(`${plan.name} · ${characters?`已接收 ${characters.toLocaleString('zh-CN')} 字`:'等待模型响应'}`);},context);}finally{mt.generationMs+=performance.now()-generatedAt;}});candidate=undefined;files=result.files;await options.guard();
+   const queuedAt=performance.now();const result=candidate||await modelSlot(async()=>{await options.guard();const generatedAt=performance.now();mt.queueMs=(mt.queueMs||0)+generatedAt-queuedAt;try{return await generate(scoped,files,failure,async characters=>{if(!characters)mt.modelCalls!++;await options.progress(`${plan.name} · ${characters?`已接收 ${characters.toLocaleString('zh-CN')} 字`:'等待模型响应'}`);},context);}finally{mt.generationMs+=performance.now()-generatedAt;}});candidate=undefined;files=result.files;await options.guard();
+   if(result.businessFieldAdditions){additions.push(...result.businessFieldAdditions);context.businessContract=result.businessContract;}
    const artifactId=randomUUID();await options.progress(`${plan.name} · ${options.previewFirst?'正在准备可操作预览':'正在构建并检查'}`);
    const builtAt=performance.now();
    try{
@@ -96,7 +102,7 @@ export async function buildModularDemo(p:Project,prior:DemoRevision|undefined,op
     }
    }
   }
-  timings.queueMs=(timings.queueMs||0)+(mt.queueMs||0);timings.generationMs+=mt.generationMs;timings.buildMs+=mt.buildMs;timings.checkMs+=mt.checkMs;recordMetric('demo.module.queue',mt.queueMs||0);recordMetric('demo.module.generate',mt.generationMs);recordMetric('demo.module.build',mt.buildMs);recordMetric('demo.module.check',mt.checkMs);
+  timings.queueMs=(timings.queueMs||0)+(mt.queueMs||0);timings.generationMs+=mt.generationMs;timings.buildMs+=mt.buildMs;timings.checkMs+=mt.checkMs;timings.modelCalls=(timings.modelCalls||0)+(mt.modelCalls||0);timings.validationRepairs=(timings.validationRepairs||0)+(mt.validationRepairs||0);recordMetric('demo.module.queue',mt.queueMs||0);recordMetric('demo.module.generate',mt.generationMs);recordMetric('demo.module.build',mt.buildMs);recordMetric('demo.module.check',mt.checkMs);
  };
  let next=0,failure:unknown;
  const workers=await Promise.allSettled(Array.from({length:Math.min(2,plans.length)},async()=>{
@@ -109,6 +115,7 @@ export async function buildModularDemo(p:Project,prior:DemoRevision|undefined,op
   result.timings.totalMs=performance.now()-start;return result;
  }
  if(failure)throw failure;for(const worker of workers)if(worker.status==='rejected')throw worker.reason;
+ if(additions.length&&businessContract)businessContract=extendBusinessFields(businessContract,additions);
  modules.sort((a,b)=>plans.findIndex(p=>p.id===a.id)-plans.findIndex(p=>p.id===b.id));
  await options.guard();const artifactId=randomUUID(),dir=artifactDir(p.id,artifactId);await mkdir(path.join(dir,'output'),{recursive:true});
  const links=modules.map(m=>({id:m.id,name:m.name,cardIds:m.cardIds,url:`/api/projects/${p.id}/demo/artifacts/${m.artifactId}/index.html`}));
