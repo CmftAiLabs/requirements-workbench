@@ -344,7 +344,7 @@ export const instructions = `你是企业系统需求协作平台的需求分析
 可以使用 searchProjectEvidence 只读检索本次提供的项目材料/人类消息；它没有外部访问或写入能力。不要为了调用工具重复已知信息。
 不要在输出中泄露与需求无关的凭据。严格按本次输出结构返回 JSON，无 Markdown、无额外说明。`;
 
-type RuntimeOptions={model?:string;tools?:boolean;instructions?:string;coding?:boolean;stream?:boolean;onProgress?:(characters:number)=>Promise<void>};
+type RuntimeOptions={model?:string;tools?:boolean;instructions?:string;coding?:boolean;stream?:boolean;signal?:AbortSignal;onProgress?:(characters:number)=>Promise<void>};
 type AnalysisOptions<T>=RuntimeOptions&{
  discussionScope?:DiscussionScope;
  onRepair?:(kind:'structure'|'length')=>Promise<void>;
@@ -386,7 +386,8 @@ export function createRuntime(materials: Material[], card?: Card, options: Runti
     // Keep retries explicit here: one tool-compatibility fallback and one JSON repair.
     maxRetries: 0, errorProcessorDefaults: false, tools: { searchProjectEvidence } });
   // One normal generation plus at most one validation repair, each independently bounded.
-  const abortSignal = AbortSignal.timeout(options.coding ? 900_000 : 330_000);
+  const timeoutSignal = AbortSignal.timeout(options.coding ? 900_000 : 330_000);
+  const abortSignal = options.signal?AbortSignal.any([timeoutSignal,options.signal]):timeoutSignal;
   let textOnly = options.tools === false;
   async function generate(prompt: string, maxOutputTokens = 8192): Promise<string> {
     const call = async () => {
@@ -419,6 +420,7 @@ export function createRuntime(materials: Material[], card?: Card, options: Runti
         textOnly = true;
         try { return await call(); } catch (fallbackError) { failure = classifyFailure(fallbackError).failure; }
       }
+      if (options.signal?.aborted) throw options.signal.reason||new Error('原型需求已更新，停止旧任务');
       if (abortSignal.aborted) throw new SafeAIError('本次模型分析超时，原材料已保留，请稍后重试。');
       throw failure;
     }

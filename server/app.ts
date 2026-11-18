@@ -114,6 +114,7 @@ export async function buildApp(){
  const sync=createWorkspaceSync(),requestStarts=new WeakMap<FastifyRequest,number>(),responseBytes=new WeakMap<FastifyRequest,number>();
  const streams=new Set<()=>void>();app.addHook('preClose',async()=>{for(const close of streams)close();});
  const demos=createDemoQueue({enabled:config.modelConfigured});
+ void demos.resume().catch(()=>app.log.warn('原型后台检查恢复未完成'));
  const discussion=createDiscussionQueue({enabled:config.modelConfigured,onSuggested:(id,cardId)=>demos.enqueue(id,cardId)});
  app.addHook('onClose',async()=>{discussion.close();demos.close();});
  await app.register(cookie,{secret:config.sessionSecret,hook:'onRequest'});

@@ -12,11 +12,11 @@ useBusinessState 必须直接返回 usePrototypeState<BusinessState>('shared.bus
 只定义有效需求涉及的数据，不增加需求范围；初始数据要支持从申请到下游结果的完整流程，且不能提前造出测试操作应产生的记录。可列少量虚构主数据和明确的期初数量。不要实现页面、按钮、确认需求或调用真实业务系统。
 若现有契约足以表达变更，返回 reusePrevious:true 并省略 source，平台原样复用；字符长度、阈值、文案等规则调整通常不需要改变数据定义。否则仅增加必要字段，保留已有实体、状态和初始数据，防止修改规则时清空其他模块。summary 用中文概述共享数据关系。`;
 
-export async function prepareBusinessContract(project:Project,previous?:DemoBusinessContract):Promise<DemoBusinessContract>{
+export async function prepareBusinessContract(project:Project,previous?:DemoBusinessContract,signal?:AbortSignal):Promise<DemoBusinessContract>{
  const inputKey=demoInputKey(project);
  if(previous?.inputKey===inputKey)return previous;
  const result=await runAnalysis('plan-prototype-business-contract',[],undefined,
   ()=>JSON.stringify({effectiveRequirements:demoInput(project),previous:previous?{source:previous.source,summary:previous.summary}:null,jsonSchema:z.toJSONSchema(schema)}),
-  raw=>{const value=schema.parse(raw),source=value.reusePrevious?previous?.source:value.source;if(!source||!/export\s+(?:interface|type)\s+BusinessState\b/.test(source)||!source.includes('useBusinessState')||!source.includes('initialBusinessState')||!source.includes('shared.business'))throw Error('业务契约缺少统一状态接口');return {summary:value.summary,source};},8192,{instructions,tools:false});
+  raw=>{const value=schema.parse(raw),source=value.reusePrevious?previous?.source:value.source;if(!source||!/export\s+(?:interface|type)\s+BusinessState\b/.test(source)||!source.includes('useBusinessState')||!source.includes('initialBusinessState')||!source.includes('shared.business'))throw Error('业务契约缺少统一状态接口');return {summary:value.summary,source};},8192,{instructions,tools:false,signal});
  return {...result,inputKey};
 }

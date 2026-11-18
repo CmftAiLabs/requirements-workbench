@@ -18,7 +18,7 @@
     "db:down": "docker compose stop db",
     "local:up": "node scripts/local.mjs start",
     "local:stop": "node scripts/local.mjs stop",
-    "demo:setup": "docker build -t requirements-demo-runner:1 scripts/demo-runner",
+    "demo:setup": "docker build --pull -t requirements-demo-runner:1 scripts/demo-runner",
     "demo:verify": "node --env-file=.env --import tsx scripts/check-demo-runner.ts",
     "load:test": "node --import tsx scripts/load-test.ts",
     "demo:verify-modules": "node --env-file=.env --import tsx scripts/check-modular-demo.ts"

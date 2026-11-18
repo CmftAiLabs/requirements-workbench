@@ -16,11 +16,31 @@ export const demoCodeSchema=z.object({
  checks:z.array(z.object({name:z.string().min(1).max(160),cardIds:z.array(z.string()).min(1).max(20),steps:z.array(z.object({action:z.enum(['click','fill','select','check','uncheck','expectDisabled','expectEnabled','expectText','expectValue','expectCount','expectVisible']),testId,value:z.string().max(1000).optional(),repeat:z.number().int().min(1).max(1000).optional(),count:z.number().int().min(0).max(1000).optional()}).strict()).min(2).max(24)}).strict()).min(1).max(12),
  assumptions:z.array(z.string().max(600)).max(30),
 }).strict();
+// Existing checks are retained unless the model explicitly replaces their indexed entry.
+// This makes a one-line UI change independent of regenerating the whole check suite.
+export const demoPatchSchema=demoCodeSchema.omit({bindings:true,checks:true}).extend({
+ assumptions:demoCodeSchema.shape.assumptions.optional(),
+ checkUpdates:z.array(z.object({index:z.number().int().min(0),check:demoCodeSchema.shape.checks.element}).strict()).max(12).default([]),
+ addedChecks:z.array(demoCodeSchema.shape.checks.element).max(12).default([]),
+ bindingUpdates:z.array(z.object({index:z.number().int().min(0),binding:demoCodeSchema.shape.bindings.element}).strict()).max(100).default([]),
+ addedBindings:z.array(demoCodeSchema.shape.bindings.element).max(100).default([]),
+}).strict();
+export function mergeDemoPatch(raw:unknown,previous:DemoCodeProposal){
+ const patch=demoPatchSchema.parse(raw);
+ const replace=<T>(items:T[],updates:{index:number;value:T}[])=>{
+  if(new Set(updates.map(u=>u.index)).size!==updates.length||updates.some(u=>u.index>=items.length))throw Error('原型检查更新索引无效');
+  const result=structuredClone(items);for(const u of updates)result[u.index]=u.value;return result;
+ };
+ const {checkUpdates,addedChecks,bindingUpdates,addedBindings,...code}=patch;
+ return {...code,dependencies:code.dependencies??previous.dependencies,assumptions:code.assumptions??previous.assumptions,
+  checks:[...replace(previous.checks,checkUpdates.map(u=>({index:u.index,value:u.check as DemoCodeProposal['checks'][number]}))),...addedChecks],
+  bindings:[...replace(previous.bindings,bindingUpdates.map(u=>({index:u.index,value:u.binding as DemoCodeProposal['bindings'][number]}))),...addedBindings]};
+}
 export const digest=(value:unknown)=>createHash('sha256').update(typeof value==='string'?value:JSON.stringify(value,(_key,item)=>item&&typeof item==='object'&&!Array.isArray(item)?Object.fromEntries(Object.entries(item).sort(([a],[b])=>a.localeCompare(b))):item)).digest('hex');
 export function demoOverviews(p:Project){return p.cards.filter(c=>c.included&&c.granularity==='概要').map(c=>({id:c.id,parentId:c.parentId||null,title:c.title,fields:c.fields,coverageGaps:c.coverageGaps||[]})).sort((a,b)=>a.id.localeCompare(b.id));}
 export function demoInput(p:Project){return {project:p.name,reference:p.demo||null,overviews:demoOverviews(p),cards:p.cards.filter(c=>c.included&&c.granularity!=='概要').map(c=>({id:c.id,parentId:c.parentId||null,title:c.title,module:c.organization?.module||'',fields:previewFields(c)})).sort((a,b)=>a.id.localeCompare(b.id))};}
 export const demoInputKey=(p:Project)=>digest(demoInput(p));
-export const demoBasisKey=(p:Project)=>digest({input:demoInput(p),cards:p.cards.map(c=>({id:c.id,revision:c.revision,messages:c.messageCount??c.messages.length,suggestion:liveSuggestion(c)?.id||null,included:c.included}))});
+export const demoBasisKey=(p:Project)=>digest({input:demoInput(p),cards:p.cards.filter(c=>c.included&&c.granularity!=='概要').map(c=>({id:c.id,suggestion:liveSuggestion(c)?.id||null}))});
 export const isDemoDraft=(p:Project)=>p.cards.some(c=>c.included&&c.granularity!=='概要'&&!!liveSuggestion(c));
 export function currentDemo(p:Project):DemoRevision|undefined{return p.generatedDemo?.revisions.find(r=>r.id===p.generatedDemo?.currentId);}
 export function usableDemo(p:Project):DemoRevision|undefined{
@@ -35,8 +55,8 @@ export class DemoFileOperationConflictError extends Error {
   this.name='DemoFileOperationConflictError';
  }
 }
-export function validateDemoProposal(raw:unknown,p:Project,previous:Record<string,string>={}){
- const parsed=demoCodeSchema.parse(raw);
+export function validateDemoProposal(raw:unknown,p:Project,previous:Record<string,string>={},allowEmptyChecks=false){
+ const parsed=(allowEmptyChecks?demoCodeSchema.extend({checks:z.array(demoCodeSchema.shape.checks.element).max(12)}):demoCodeSchema).parse(raw);
  for(const check of parsed.checks)for(const step of check.steps)if(step.repeat!==undefined){
   if(!['fill','expectValue'].includes(step.action)||step.value?.length!==1)throw new Error('repeat 仅用于 fill 或 expectValue，value 必须为单个字符');
   step.value=step.value.repeat(step.repeat);delete step.repeat;

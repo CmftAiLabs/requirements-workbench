@@ -3,6 +3,7 @@ export interface PrototypeModuleLink {id:string;name:string;url:string;cardIds:s
 export const prototypePersona={id:'E1001',name:'林晓',department:'行政部'} as const;
 function runShell(config:{projectId:string;modules:PrototypeModuleLink[]}){
  const frame=document.getElementById('module') as HTMLIFrameElement,nav=document.getElementById('modules')!;
+ let revision=0;
  let active=config.modules[0],pending:unknown,store:Record<string,unknown>=Object.create(null);
  const safe=(v:unknown)=>{try{return JSON.stringify(v).length<=256000;}catch{return false;}};
  const send=(data:unknown)=>frame.contentWindow?.postMessage(data,'*');
@@ -13,10 +14,17 @@ function runShell(config:{projectId:string;modules:PrototypeModuleLink[]}){
   active=next;frame.src=next.url;
   nav.querySelectorAll('button').forEach(b=>{b.setAttribute('aria-pressed',String(b.dataset.module===id));});
  };
- for(const m of config.modules){const button=document.createElement('button');button.type='button';button.textContent=m.name;button.dataset.module=m.id;button.onclick=()=>select(m.id);nav.append(button);}
+ const renderNav=()=>{nav.replaceChildren();for(const m of config.modules){const button=document.createElement('button');button.type='button';button.textContent=m.name;button.dataset.module=m.id;button.onclick=()=>select(m.id);nav.append(button);button.setAttribute('aria-pressed',String(m.id===active.id));}};renderNav();
  frame.addEventListener('load',()=>{init();if(pending)send(pending);});
  window.addEventListener('message',event=>{
   const d=event.data;if(!d||typeof d!=='object')return;
+  if(event.source===window.parent&&d.channel==='requirements-workbench'&&d.projectId===config.projectId&&d.type==='update-modules'){
+   if(!Number.isInteger(d.revision)||d.revision<revision||!Array.isArray(d.modules)||!d.modules.length)return;
+   const prefix='/api/projects/'+config.projectId+'/demo/artifacts/';
+   if(!d.modules.every((m:PrototypeModuleLink)=>typeof m.id==='string'&&typeof m.name==='string'&&Array.isArray(m.cardIds)&&typeof m.url==='string'&&m.url.startsWith(prefix)&&/^[a-zA-Z0-9-]+\/index\.html$/.test(m.url.slice(prefix.length))))return;
+   revision=d.revision;const old=active;config.modules=d.modules;active=config.modules.find(m=>m.id===old.id)||config.modules[0];renderNav();
+   if(active.id!==old.id||active.url!==old.url)frame.src=active.url;else init();return;
+  }
   if(event.source===window.parent&&d.channel==='requirements-workbench'&&d.projectId===config.projectId&&d.type==='locate'){
    const target=config.modules.find(m=>m.cardIds.includes(d.cardId));if(target){pending=d;select(target.id);send(d);}return;
   }

@@ -2,10 +2,13 @@ import {readFile,writeFile,cp,mkdir,symlink,readdir} from 'node:fs/promises';
 import path from 'node:path';
 import {build} from 'vite';
 import {chromium} from 'playwright-core';
+const mode=process.argv[2]||'full';
 const started=performance.now(),report={build:false,checks:[],bindings:[],errors:[],timings:{buildMs:0,checkMs:0,totalMs:0}};
 let browser,page;
 try{
  const spec=JSON.parse(await readFile('/input/spec.json','utf8'));
+ let html;
+ if(mode!=='verify'){
  await mkdir('/work/src',{recursive:true});await cp('/input/src','/work/src',{recursive:true});
  await symlink('/opt/runner/node_modules','/work/node_modules');
  await writeFile('/work/entry.tsx',`import React from 'react';import{createRoot}from'react-dom/client';import App from './src/App';import './src/styles.css';createRoot(document.getElementById('root')!).render(<App/>);`);
@@ -20,8 +23,9 @@ try{
   build:{outDir:'/tmp/bundle',emptyOutDir:true,minify:true,cssCodeSplit:false,lib:{entry:'/work/entry.tsx',name:'ProjectDemo',formats:['iife'],cssFileName:'style',fileName:()=> 'app.js'},rolldownOptions:{output:{inlineDynamicImports:true}}}});
  const js=await readFile('/tmp/bundle/app.js','utf8');
  let css='';for(const name of await readdir('/tmp/bundle'))if(name.endsWith('.css'))css+=await readFile('/tmp/bundle/'+name,'utf8');
- const html=`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'"><title>需求讨论 Demo</title><style>html,body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif}*{box-sizing:border-box}${css.replace(/<\/style/gi,'<\\/style')}</style></head><body><div id="root"></div><script>${js.replace(/<\/script/gi,'<\\/script')}</script></body></html>`;
+ html=`<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data:; font-src data:; connect-src 'none'; frame-src 'none'; worker-src 'none'; form-action 'none'; base-uri 'none'"><title>需求讨论 Demo</title><style>html,body{margin:0;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',sans-serif}*{box-sizing:border-box}${css.replace(/<\/style/gi,'<\\/style')}</style></head><body><div id="root"></div><script>${js.replace(/<\/script/gi,'<\\/script')}</script></body></html>`;
  await writeFile('/output/index.html',html);report.build=true;report.timings.buildMs=performance.now()-started;
+ }else{html=await readFile('/output/index.html','utf8');report.build=true;}
  browser=await chromium.launch({executablePath:'/usr/bin/chromium',headless:true,args:['--no-sandbox','--disable-dev-shm-usage','--disable-gpu','--disable-software-rasterizer','--in-process-gpu','--no-zygote']});
  const viewport=spec.viewport||{width:1280,height:800};
  const context=await browser.newContext({viewport,serviceWorkers:'block'});
@@ -35,6 +39,7 @@ try{
  const load=async()=>{await page.setContent(`<style>html,body{margin:0}</style><iframe id="demo" sandbox="allow-scripts allow-forms" style="border:0;display:block;width:${viewport.width}px;height:${viewport.height}px"></iframe>`);await page.locator('#demo').evaluate((el,html)=>el.srcdoc=html,html);const f=page.frameLocator('#demo');await f.locator('#root > *').first().waitFor({state:'visible'});await checkLayout(f);return f;};
  let f=await load();
  if(!(await f.locator('body').innerText()).trim())throw Error('Demo 为空白');
+ if(mode!=='preview'){
  for(const binding of spec.bindings){
   f=await load();if(binding.navigationTestId)await f.getByTestId(binding.navigationTestId).click();
   await f.getByTestId(binding.testId).waitFor({state:'visible'});await checkLayout(f);report.bindings.push(binding.cardId);
@@ -57,9 +62,10 @@ try{
     default:throw Error('不支持的检查操作');
    }
   }await checkLayout(f);report.checks.push({name:check.name,passed:true});}
-  catch(e){report.checks.push({name:check.name,passed:false});const visible=(await f.locator('body').innerText()).slice(0,5000);const controls=await f.locator('input,select,textarea,button').evaluateAll(nodes=>nodes.slice(0,50).map(n=>({testId:n.getAttribute('data-testid'),text:n.textContent?.slice(0,60),value:n.value,disabled:n.disabled,validation:n.validationMessage})));throw Error(check.name+': '+e.message+'\n当前页面：'+visible+'\n控件状态：'+JSON.stringify(controls));}
+  catch(e){report.checks.push({name:check.name,passed:false});const visible=(await f.locator('body').innerText()).slice(0,5000);const controls=await f.locator('input,select,textarea,button').evaluateAll(nodes=>nodes.slice(0,50).map(n=>({testId:n.getAttribute('data-testid'),text:n.textContent?.slice(0,60),value:n.value,disabled:n.disabled,validation:n.validationMessage})));report.errors.push((check.name+': '+e.message+'\n当前页面：'+visible+'\n控件状态：'+JSON.stringify(controls)).slice(0,7000));}
+ }
  }
  if(report.errors.length)throw Error(report.errors.join('\n'));
- await load();await page.screenshot({path:'/output/preview.png'});
+ if(mode!=='preview'){await load();await page.screenshot({path:'/output/preview.png'});}
 }catch(e){report.errors.push(String(e.message||e).slice(0,7000));if(page)await page.screenshot({path:'/output/failed.png'}).catch(()=>{});process.exitCode=1;}
-finally{await browser?.close();report.timings.totalMs=performance.now()-started;if(report.build)report.timings.checkMs=report.timings.totalMs-report.timings.buildMs;await writeFile('/output/report.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));}
+finally{await browser?.close();report.timings.totalMs=performance.now()-started;if(report.build)report.timings.checkMs=report.timings.totalMs-report.timings.buildMs;await writeFile(mode==='preview'?'/output/preview-report.json':'/output/report.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));}
