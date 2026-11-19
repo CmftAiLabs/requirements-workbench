@@ -72,7 +72,7 @@ export async function initStore(){
     await client.query('UPDATE projects SET body=$2,view_stamp=$3,view_name=$4 WHERE id=$1',[project.id,project,project.stamp,project.name]);
     await client.query('DELETE FROM discussion_appends WHERE project_id=$1',[project.id]);await writeReadModel(client,project);
    }
-   else if(!(await client.query('SELECT 1 FROM workspace_heads WHERE project_id=$1',[project.id])).rowCount||(await client.query('SELECT 1 FROM workspace_cards WHERE project_id=$1 AND history IS NULL LIMIT 1',[project.id])).rowCount)await writeReadModel(client,project);
+   else if(!(await client.query('SELECT 1 FROM workspace_heads WHERE project_id=$1',[project.id])).rowCount||(await client.query('SELECT 1 FROM workspace_cards WHERE project_id=$1 AND history IS NULL LIMIT 1',[project.id])).rowCount||(await client.query("SELECT 1 FROM workspace_heads h, jsonb_array_elements(h.body->'materials') m WHERE project_id=$1 AND NOT (m ? 'textLength') LIMIT 1",[project.id])).rowCount)await writeReadModel(client,project);
   }
   await client.query('COMMIT');
  }catch(error){await client.query('ROLLBACK');throw error}finally{client.release()}

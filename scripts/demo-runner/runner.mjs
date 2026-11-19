@@ -31,6 +31,11 @@ try{
  const context=await browser.newContext({viewport,serviceWorkers:'block'});
  await context.route('**/*',route=>route.abort());
  page=await context.newPage();page.setDefaultTimeout(4000);
+ const expectEventually=async(check,message)=>{
+  const deadline=performance.now()+4000;
+  do{if(await check())return;await page.waitForTimeout(50);}while(performance.now()<deadline);
+  throw Error(message);
+ };
  page.on('pageerror',e=>report.errors.push(e.message.slice(0,700)));
  const checkLayout=async f=>{
   const size=await f.locator('html').evaluate(el=>({width:el.clientWidth,scrollWidth:el.scrollWidth}));
@@ -53,12 +58,12 @@ try{
     case 'select':await el.selectOption(step.value);break;
     case 'check':await el.check();break;
     case 'uncheck':await el.uncheck();break;
-    case 'expectDisabled':if(await el.isEnabled())throw Error('按钮应不可操作');break;
-    case 'expectEnabled':if(!await el.isEnabled())throw Error('按钮应可操作');break;
+    case 'expectDisabled':await expectEventually(async()=>!await el.isEnabled(),'按钮应不可操作');break;
+    case 'expectEnabled':await expectEventually(()=>el.isEnabled(),'按钮应可操作');break;
     case 'expectVisible':await el.waitFor({state:'visible'});break;
     case 'expectText':await el.filter({hasText:step.value}).waitFor({state:'visible'});break;
-    case 'expectValue':if(await el.inputValue()!==step.value)throw Error('输入值与预期不一致');break;
-    case 'expectCount':if(await el.count()!==step.count)throw Error('元素数量与预期不一致');break;
+    case 'expectValue':await expectEventually(async()=>await el.inputValue()===step.value,'输入值与预期不一致');break;
+    case 'expectCount':await expectEventually(async()=>await el.count()===step.count,'元素数量与预期不一致');break;
     default:throw Error('不支持的检查操作');
    }
   }await checkLayout(f);report.checks.push({name:check.name,passed:true});}

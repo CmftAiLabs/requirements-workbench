@@ -3,9 +3,9 @@ import {ArrowUp,FileText,LoaderCircle,Paperclip,Sparkles,X} from 'lucide-react';
 import {CHAT_FILE_ACCEPT,CHAT_MAX_BYTES,CHAT_MAX_FILES} from '../shared/chat-attachments';
 import './chat-materials.css';
 
-type Props={assistantAvailable?:boolean;text:string;setText:(value:string)=>void;inputRef:RefObject<HTMLTextAreaElement|null>;disabledReason:string;attachmentReason:string;hint:string;quickActions:ReactNode;modelPicker?:ReactNode;reply?:string;clearReply:()=>void;sendText:()=>Promise<void>;sendMaterials:(data:FormData)=>Promise<boolean>};
-export function ChatComposer({assistantAvailable=true,text,setText,inputRef,disabledReason,attachmentReason,hint,quickActions,modelPicker,reply,clearReply,sendText,sendMaterials}:Props){
- const [files,setFiles]=useState<File[]>([]),[notice,setNotice]=useState(''),[uploading,setUploading]=useState(false),[drag,setDrag]=useState(false);
+type Props={files:File[];setFiles:(files:File[])=>void;clearDraft:()=>void;assistantAvailable?:boolean;text:string;setText:(value:string)=>void;inputRef:RefObject<HTMLTextAreaElement|null>;disabledReason:string;attachmentReason:string;hint:string;quickActions:ReactNode;modelPicker?:ReactNode;reply?:string;clearReply:()=>void;sendText:()=>Promise<void>;sendMaterials:(data:FormData)=>Promise<boolean>};
+export function ChatComposer({files,setFiles,clearDraft,assistantAvailable=true,text,setText,inputRef,disabledReason,attachmentReason,hint,quickActions,modelPicker,reply,clearReply,sendText,sendMaterials}:Props){
+ const [notice,setNotice]=useState(''),[uploading,setUploading]=useState(false),[drag,setDrag]=useState(false);
  const picker=useRef<HTMLInputElement>(null),composing=useRef(false),sending=useRef(false),requestId=useRef(''),mounted=useRef(true);
  useEffect(()=>{mounted.current=true;return()=>{mounted.current=false;};},[]);
  useEffect(()=>{requestId.current='';},[text,reply]);
@@ -33,7 +33,7 @@ export function ChatComposer({assistantAvailable=true,text,setText,inputRef,disa
    // The caller supplies the pending question ID, never a client-supplied identity.
    for(const file of files)data.append('files',file);
    const okay=await sendMaterials(data);
-   if(mounted.current){if(okay){setFiles([]);setText('');clearReply();requestId.current='';}else setNotice('发送未完成，材料和文字已保留，可重试。');}
+   if(okay){clearDraft();requestId.current='';}else if(mounted.current)setNotice('发送未完成，材料和文字已保留，可重试。');
   }finally{sending.current=false;if(mounted.current)setUploading(false);}
  };
  return <form className={`co-composer ${drag?'co-dropping':''}`} onSubmit={e=>{e.preventDefault();void submit();}}

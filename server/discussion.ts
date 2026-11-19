@@ -6,7 +6,7 @@ import {participantById,defaultParticipantId,isQuestionRecipient} from '../share
 import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import {FIELDS,type Card,type Project,type DiscussionAnalysis} from '../shared/types.ts';
-import {discussionBasis,latestHumanMessage,waitingQuestion} from '../shared/discussion.ts';
+import {discussionBasis,isRequirementUpdateRequest,latestHumanMessage,waitingQuestion} from '../shared/discussion.ts';
 import {handlingSchema} from './expert-policy';
 
 export const discussionSchema=z.object({
@@ -94,6 +94,12 @@ export function validateDiscussion(raw:unknown,card:Card):DiscussionAnalysis{
   const clauses=(result.reply||'').split(/[，。；\n]/).filter(t=>!/(?:无需|不需要|不必|不用|不再|已经|此前|已明确|已确认)/.test(t));
   if(clauses.some(t=>handoff.test(t))&&recipient!==id)throw new SafeAIError('回复要求某人决定或补充时，必须生成给该人的正式追问，不能只在文字里点名。');
  }
+ const direct=result.handling?.mode!=='deep'&&result.handling?.mode!=='quiet';
+ const canSummarize=direct&&!result.question&&!result.reopenQuestion&&(!pending||result.answer?.questionId===pending.id);
+ // A draft promise must produce the real, reviewable action. Never treat this
+ // routing decision as adoption or let it bypass an unanswered question.
+ const promisesDraft=/(?:已(?:整理|生成|形成)|(?:以下|下面|本轮|可采纳).{0,12})(?:.{0,24})(?:字段修改|修改建议|需求草稿|字段草稿)/u.test(result.reply||'');
+ if(canSummarize&&(isRequirementUpdateRequest(latestHumanMessage(card)?.text||'')||promisesDraft))result.summarize=true;
  if(result.question)result.summarize=false;
  return result;
 }

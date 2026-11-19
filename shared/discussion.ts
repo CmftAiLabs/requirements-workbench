@@ -1,4 +1,4 @@
-import {isQuestionRecipient,personFor,type ParticipantId} from './participants';
+import {isBusinessOwner,isQuestionRecipient,personFor,type ParticipantId} from './participants';
 import {cardStatus,type Card,type Project,type Role} from './types.ts';
 import {pendingAttachmentMessages} from './chat-attachments';
 
@@ -34,6 +34,6 @@ export function discussionBasis(project:Project,card:Card){
 export function waitingLabel(card:Card,role?:Role,participantId?:ParticipantId){
  const q=waitingQuestion(card);
  if(q){const pending=role&&isQuestionRecipient(q,role,participantId)?'等你补充':`等${personFor(q.role,q.participantId).name}回复`;return cardStatus(card)==='已确认'?`已确认 · ${pending}`:pending;}
- if(cardStatus(card)!=='已确认'&&card.approvals.pm?.revision===card.revision&&card.approvals.pm?.round===card.round&&card.approvals.pm?.result==='通过')return role==='business'&&(!participantId||participantId==='business')?'等你确认':'等业务确认';
+ if(cardStatus(card)!=='已确认'&&card.approvals.pm?.revision===card.revision&&card.approvals.pm?.round===card.round&&card.approvals.pm?.result==='通过')return role&&isBusinessOwner(role,participantId)?'等你确认':'等业务确认';
  return '';
 }

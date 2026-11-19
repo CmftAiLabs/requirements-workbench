@@ -118,7 +118,7 @@ export async function demoArtifactHTML(p:Project,artifactId:string){
 export async function demoView(p:Project,metadataOnly=false):Promise<DemoView>{
  const found=usableDemo(p);if(!found)return {html:'',stale:false,draft:false,status:'根据本项目需求生成可交互原型'};
  const revision=found.businessContract?{...found,businessContract:{...found.businessContract,runtimeKey:businessRuntimeKey(found.businessContract)}}:found;
- const stale=revision.inputKey!==demoInputKey(p)||(revision.draft&&revision.basisKey!==demoBasisKey(p));
+ const stale=revision.inputKey!==demoInputKey(p);
  const draft=isDemoDraft(p);
  return {html:metadataOnly?'':await generatedHTML(p,revision),url:`/api/projects/${p.id}/demo/artifacts/${revision.artifactId}/index.html${revision.modules?'?shell=2':''}`,revision,stale,draft,status:stale?'上次可用原型 · 尚未同步当前需求':draft?'Agent 生成草稿 · 尚未采纳':'已同步当前需求'};
 }

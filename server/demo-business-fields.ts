@@ -5,14 +5,20 @@ import type {DemoBusinessContract} from '../shared/generated-demo';
 
 const identifier=z.string().regex(/^[A-Za-z_$][A-Za-z0-9_$]{0,79}$/).refine(value=>!['__proto__','prototype','constructor'].includes(value));
 // The model describes data only. It cannot replace executable contract code here.
-export const businessFieldAdditionsSchema=z.array(z.object({entity:identifier,name:identifier,type:z.enum(['string','number','boolean'])}).strict()).max(8);
+const businessFieldSchema=z.object({entity:identifier,name:identifier,type:z.enum(['string','number','boolean'])}).strict();
+// Keep each model response small. A project combines several independently
+// validated modules, so its aggregate must not inherit the per-response limit.
+export const businessFieldAdditionsSchema=z.array(businessFieldSchema).max(8);
+const projectFieldAdditionsSchema=z.array(businessFieldSchema).max(256);
 export type BusinessFieldAddition=z.infer<typeof businessFieldAdditionsSchema>[number];
 export const businessRuntimeKey=(contract:DemoBusinessContract)=>contract.runtimeKey||digest(contract.source);
 const runtime=(source:string)=>ts.transpileModule(source,{compilerOptions:{target:ts.ScriptTarget.ES2022,module:ts.ModuleKind.ESNext,removeComments:true}}).outputText;
 
 /** Add optional scalar properties to existing types, leaving initial data and runtime identical. */
 export function extendBusinessFields(previous:DemoBusinessContract,raw:unknown):DemoBusinessContract{
- const additions=businessFieldAdditionsSchema.parse(raw),file=ts.createSourceFile('prototype-business.ts',previous.source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
+ const parsed=projectFieldAdditionsSchema.safeParse(raw);
+ if(!parsed.success)throw Error('新增业务字段格式不正确或数量过多，请分批更新；上一版原型已保留。');
+ const additions=parsed.data,file=ts.createSourceFile('prototype-business.ts',previous.source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TS);
  const edits=new Map<number,string[]>(),seen=new Map<string,string>();
  for(const field of additions){
   const key=field.entity+'.'+field.name,earlier=seen.get(key);if(earlier&&earlier!==field.type)throw Error('新增业务字段类型冲突：'+key);if(earlier)continue;seen.set(key,field.type);

@@ -18,7 +18,7 @@ export function cardView(card:Card,limit=4,changeKey=messageChangeKey(card)):Car
 }
 export function compactProject(p:Project):Project{
  const snapshot=(s:Project['snapshots'][number])=>({...s,cards:[],materials:[],markdown:'',cardCount:s.cards.length,deferred:true});
- return {...p,...(p.generatedDemo?{generatedDemo:{...p.generatedDemo,revisions:p.generatedDemo.revisions.slice(-2)}}:{}),cards:p.cards.map(c=>cardView(c)),materials:p.materials.map(m=>({...m,text:'',textAvailable:!!m.text.trim(),textVersion:digest(m.text)})),snapshots:p.snapshots.map(snapshot),deliveries:p.deliveries.map(d=>({...d,snapshot:snapshot(d.snapshot)})),events:p.events.slice(-40)};
+ return {...p,...(p.generatedDemo?{generatedDemo:{...p.generatedDemo,revisions:p.generatedDemo.revisions.slice(-2)}}:{}),cards:p.cards.map(c=>cardView(c)),materials:p.materials.map(m=>({...m,text:'',textLength:Array.from(m.text).length,textAvailable:!!m.text.trim(),textVersion:digest(m.text)})),snapshots:p.snapshots.map(snapshot),deliveries:p.deliveries.map(d=>({...d,snapshot:snapshot(d.snapshot)})),events:p.events.slice(-40)};
 }
 
 /** Bounded, process-local cursors: an expired cursor or a restart returns a fresh snapshot. */

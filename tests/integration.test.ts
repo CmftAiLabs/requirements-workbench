@@ -241,6 +241,18 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
         assert.equal(current.generatedDemo!.revisions.length,2);assert.equal(current.generatedDemo!.revisions.at(-1)!.basisKey,demoBasisKey(current));assert.equal(current.cards[0].approvals.business,undefined);
         applyAction(current,{type:'editCard',cardId:current.cards[0].id,title:current.cards[0].title,fields:{...current.cards[0].fields,flow:'新的未同步规则'},reason:'验收'},'pm');assert.equal((await demoView(current)).stale,true);await assert.rejects(()=>generatedDemoZip(current),/尚未同步/);
       }finally{changed.close();}
+      // The same effective proposal can be adopted while its code is building.
+      // Metadata changes must not cancel the build or bypass business approval.
+      let resume!:()=>void,notify!:()=>void;const hold=new Promise<void>(r=>{resume=r;}),began=new Promise<void>(r=>{notify=r;});let generated=0;
+      await db.mutateProject(p.id,next=>{const c=next.cards[0];attachSuggestion(next,c.id,{summary:'补充保存结果',issues:[],changes:[{field:'flow',before:c.fields.flow,after:c.fields.flow+' 保存后显示记录编号。',reason:'明确反馈',evidence:[]}]},c.revision,c.messages.length);});
+      const adoptedWhileBuilding=createDemoQueue({enabled:true,generate:async project=>{generated++;notify();await hold;return code(project);},build});
+      try{
+        const job=await adoptedWhileBuilding.enqueue(p.id,undefined,true);await began;
+        await db.mutateProject(p.id,next=>{const c=next.cards[0];applyAction(next,{type:'applySuggestion',cardId:c.id,suggestionId:c.suggestion!.id,decisions:{flow:'采纳'}},'pm');});resume();
+        assert.equal((await waitJob(p.id,job!.id)).status,'succeeded');assert.equal(generated,1);
+        const after=await db.getProject(p.id),latest=after.generatedDemo!.revisions.at(-1)!;
+        assert.equal(latest.draft,false);assert.equal(latest.basisKey,demoBasisKey(after));assert.equal(after.cards[0].approvals.business,undefined);
+      }finally{adoptedWhileBuilding.close();}
     });
 
     await t.test('自动讨论任务合并并发消息、丢弃旧分析，回答后只生成待采纳建议',async()=>{

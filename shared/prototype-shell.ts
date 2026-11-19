@@ -46,19 +46,19 @@ export function moduleShell(projectId:string,modules:PrototypeModuleLink[]){
 }
 
 /** A shared, bounded simulation store; no access to application data or credentials. */
-export const prototypeStateSource=`import {useRef,useSyncExternalStore} from 'react';
+export const prototypeStateSource=`import {useCallback,useRef,useSyncExternalStore} from 'react';
 type Runtime={store:Record<string,unknown>;listeners:Set<()=>void>;modules:{id:string;name:string}[];set:(key:string,value:unknown)=>void;navigate:(id:string)=>void};
 declare global{interface Window{__reqPrototype?:Runtime}}
 const runtime:Runtime=window.__reqPrototype||{store:Object.create(null),listeners:new Set(),modules:[],set:()=>{},navigate:()=>{}};
 window.__reqPrototype=runtime;
 const emit=()=>runtime.listeners.forEach(fn=>fn());
 const valid=(key:string,value:unknown)=>key.length<=200&&!['__proto__','constructor','prototype'].includes(key)&&JSON.stringify({...runtime.store,[key]:value}).length<=256000;
-runtime.set=(key,value)=>{if(!valid(key,value))return;runtime.store={...runtime.store,[key]:value};emit();if(window.parent!==window)window.parent.postMessage({channel:'requirements-prototype-state',type:'set',key,value},'*');};
+runtime.set=(key,value)=>{if(Object.is(runtime.store[key],value)||!valid(key,value))return;runtime.store={...runtime.store,[key]:value};emit();if(window.parent!==window)window.parent.postMessage({channel:'requirements-prototype-state',type:'set',key,value},'*');};
 runtime.navigate=id=>{if(runtime.modules.some(m=>m.id===id))window.parent.postMessage({channel:'requirements-prototype-state',type:'navigate',moduleId:id},'*');};
 window.addEventListener('message',event=>{if(event.source!==window.parent||event.data?.channel!=='requirements-prototype-state'||event.data.type!=='init')return;const data=event.data;if(!data.store||typeof data.store!=='object'||JSON.stringify(data.store).length>256000)return;runtime.store=data.store;runtime.modules=data.modules||[];emit();});
 if(window.parent!==window)window.parent.postMessage({channel:'requirements-prototype-state',type:'ready'},'*');
 const subscribe=(listener:()=>void)=>{runtime.listeners.add(listener);return()=>{runtime.listeners.delete(listener);};};
 const snapshot=()=>runtime.store;
-export function usePrototypeState<T>(key:string,initial:T|(()=>T)):[T,(value:T|((previous:T)=>T))=>void]{const first=useRef<{value:T}|null>(null);if(!first.current)first.current={value:typeof initial==='function'?(initial as ()=>T)():initial};const state=useSyncExternalStore(subscribe,snapshot,snapshot);const value=(Object.prototype.hasOwnProperty.call(state,key)?state[key]:first.current.value) as T;return [value,next=>runtime.set(key,typeof next==='function'?(next as (v:T)=>T)(value):next)];}
+export function usePrototypeState<T>(key:string,initial:T|(()=>T)):[T,(value:T|((previous:T)=>T))=>void]{const first=useRef<{value:T}|null>(null);if(!first.current)first.current={value:typeof initial==='function'?(initial as ()=>T)():initial};const state=useSyncExternalStore(subscribe,snapshot,snapshot);const value=(Object.prototype.hasOwnProperty.call(state,key)?state[key]:first.current.value) as T;const set=useCallback((next:T|((previous:T)=>T))=>{const current=(Object.prototype.hasOwnProperty.call(runtime.store,key)?runtime.store[key]:first.current!.value) as T;runtime.set(key,typeof next==='function'?(next as (v:T)=>T)(current):next);},[key]);return [value,set];}
 export function usePrototypeNavigation(){useSyncExternalStore(subscribe,snapshot,snapshot);return {modules:runtime.modules,navigate:runtime.navigate};}
 `;

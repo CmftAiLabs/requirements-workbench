@@ -11,11 +11,13 @@ export function unresolvedContentHint(value: string): string {
     // state declarations or state-conditioned behavior qualify as business states.
     const stateDeclaration = /(?:状态(?:为|是|设为|变为|改为|显示为|置为|包含|包括|分为)|处于)[“"'「【]?$/u.test(before);
     const stateCondition = /^[”"'」】]?(?:状态|期间|阶段|时(?!间|限|长|段|点))/u.test(after);
+    const stateObject = /(?:取消|撤销|查看|处理|筛选|删除|拒绝|编辑|提交|打开|关闭|展示|显示|列出)[“"'「【]?$/u.test(before)
+      && /^[”"'」】]?(?:的)?(?:预约|邀请|申请|订单|工单|单据|记录)/u.test(after);
     // E.g. “可查看待确认、已同意、已交换” names a state sequence. A normal
     // comma is deliberately excluded: “范围待确认，已安排会议” is still unclear.
-    const stateSequence = /^[”"'」】]?(?:[、/→]|->)[“"'「【]?已\p{Script=Han}{1,6}(?=[”"'」】、/→，,。；;：:]|及|或|和|$)/u.test(after)
+    const stateSequence = /^[”"'」】]?(?:[、/→]|->)[“"'「【]?(?:已\p{Script=Han}{1,6}|被拒绝|拒绝|取消|撤销)(?=[”"'」】、/→，,。；;：:]|及|或|和|以及|$)/u.test(after)
       || /已\p{Script=Han}{1,6}[”"'」】]?(?:[、/→]|->)[“"'「【]?$/u.test(before);
-    if (!stateDeclaration && !stateCondition && !stateSequence) return compact.slice(Math.max(0, match.index - 16), match.index + 36);
+    if (!stateDeclaration && !stateCondition && !stateObject && !stateSequence) return compact.slice(Math.max(0, match.index - 16), match.index + 36);
   }
   return '';
 }

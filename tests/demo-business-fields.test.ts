@@ -77,3 +77,16 @@ test('新增字段与页面一次生成，复用其他模块，后续同内容�
   const repeated=await buildModularDemo(p,revision(second),options);assert.equal(calls,1);assert.equal(repeated.reused,2);
  }finally{await rm(config.dataDir,{recursive:true,force:true});config.dataDir=previousDir;}
 });
+
+test('HCSWP3 两模块各追加6项，项目汇总12项仍发布成功且不修改运行定义',async()=>{
+ const old=config.dataDir;config.dataDir=await mkdtemp(path.join(tmpdir(),'hcs-fields-'));
+ try{
+  const p=createCRMExperience();p.cards=p.cards.filter(c=>c.included);p.cards.forEach((c,i)=>c.organization={module:i?'案件查阅':'报案',priority:'正常沟通',reason:''});
+  const result=await buildModularDemo(p,undefined,{resolvedContract:contract,previewFirst:true,guard:async()=>{},progress:async()=>{},generate:async(scoped,previous,_failure,_progress,context)=>{
+   const additions=Array.from({length:6},(_,i)=>({entity:'Entry',name:(context!.name==='报案'?'entry':'case')+i,type:'string' as const}));
+   const extended=extendBusinessFields(context!.businessContract!,additions);
+   return {...validateDemoProposal({summary:'补充业务字段',files:[{path:'src/App.tsx',content:'export default function App(){return <div data-testid="form"/>}'},{path:'src/styles.css',content:'body{color:blue}'}],bindings:[{cardId:scoped.cards[0].id,field:'data',testId:'form'}],checks:[],assumptions:[]},scoped,previous,true),businessFieldAdditions:additions,businessContract:extended};
+  },build:async()=>({build:true,checks:[],errors:[]})});
+  assert.equal(result.modules.length,2);assert.equal((result.businessContract!.source.match(/\?: string/g)||[]).length,12);assert.equal(result.businessContract!.runtimeKey,businessRuntimeKey(contract));assert.equal(p.cards.some(c=>c.approvals.business),false);
+ }finally{const temporary=config.dataDir;config.dataDir=old;await rm(temporary,{recursive:true,force:true});}
+});

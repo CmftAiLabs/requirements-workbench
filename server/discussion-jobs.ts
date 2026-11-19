@@ -176,8 +176,8 @@ export function createDiscussionQueue({enabled,analyze=analyzeDiscussion,suggest
    if(error instanceof AssessmentCancelled){job.status='succeeded';job.label='已取消需求评估';const p=await getProject(job.projectId);attempted=p.cards.find(c=>c.id===job.cardId)?.assistantCursor||attempted;return;}
    job.status='failed';
    // Validation diagnostics are for bounded model repair, never user-facing job text.
-   console.warn('讨论任务未完成', {jobId:job.id,category:error instanceof Error?error.name:'UnknownError'});
-   job.error=job.label.includes('评估')?'本次评估未能完成，原消息和材料已保留，请按最新讨论重试。':'本轮回应或追问未能完成。讨论内容已保留，请按最新讨论重试。';
+   console.warn('讨论任务未完成', {jobId:job.id,category:error instanceof Error?error.name:'UnknownError',...(error instanceof SafeAIError?{reason:error.message.slice(0,1000)}:{})});
+   job.error=error instanceof SafeAIError&&error.code==='invalid_evidence'?'本轮建议的原文依据未核对通过，尚未改动需求。请补充相关业务原话后点击“整理讨论”重试。':job.label.includes('评估')?'本次评估未能完成，原消息和材料已保留，请按最新讨论重试。':'本轮回应或追问未能完成。讨论内容已保留，请按最新讨论重试。';
   }finally{
    if(closed){job.status='failed';job.error='服务已重启，可以继续讨论或重新整理。';}
    const assessmentProject=await getDiscussionView(job.projectId,job.cardId!);

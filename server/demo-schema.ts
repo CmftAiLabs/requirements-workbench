@@ -16,6 +16,9 @@ export const demoCodeSchema=z.object({
  checks:z.array(z.object({name:z.string().min(1).max(160),cardIds:z.array(z.string()).min(1).max(20),steps:z.array(z.object({action:z.enum(['click','fill','select','check','uncheck','expectDisabled','expectEnabled','expectText','expectValue','expectCount','expectVisible']),testId,value:z.string().max(1000).optional(),repeat:z.number().int().min(1).max(1000).optional(),count:z.number().int().min(0).max(1000).optional()}).strict()).min(2).max(24)}).strict()).min(1).max(12),
  assumptions:z.array(z.string().max(600)).max(30),
 }).strict();
+// A module accumulates checks across human-reviewed revisions. Do not apply
+// the single-response budget to its complete retained regression suite.
+export const storedDemoCodeSchema=demoCodeSchema.extend({checks:z.array(demoCodeSchema.shape.checks.element).min(1).max(64)});
 // Existing checks are retained unless the model explicitly replaces their indexed entry.
 // This makes a one-line UI change independent of regenerating the whole check suite.
 export const demoPatchSchema=demoCodeSchema.omit({bindings:true,checks:true}).extend({
@@ -44,10 +47,13 @@ export const demoBasisKey=(p:Project)=>digest({input:demoInput(p),cards:p.cards.
 export const isDemoDraft=(p:Project)=>p.cards.some(c=>c.included&&c.granularity!=='概要'&&!!liveSuggestion(c));
 export function currentDemo(p:Project):DemoRevision|undefined{return p.generatedDemo?.revisions.find(r=>r.id===p.generatedDemo?.currentId);}
 export function usableDemo(p:Project):DemoRevision|undefined{
- const key=demoInputKey(p),basis=demoBasisKey(p);
- return p.generatedDemo?.revisions.slice().reverse().find(r=>r.inputKey===key&&(!r.draft||r.basisKey===basis))||currentDemo(p);
+ const key=demoInputKey(p);
+ return p.generatedDemo?.revisions.slice().reverse().find(r=>r.inputKey===key)||currentDemo(p);
 }
 export interface DemoFileConflict {path:string;operations:('replace'|'delete'|'edit')[]}
+export class DemoEntryFilesError extends Error {
+ constructor(readonly missing:string[],readonly candidateFiles:Record<string,string>,readonly proposal:DemoCodeProposal){super('原型缺少入口文件：'+missing.join('、')+'；请仅补齐缺失文件，保留已生成内容。');this.name='DemoEntryFilesError';}
+}
 export class DemoFileOperationConflictError extends Error {
  constructor(readonly conflicts:DemoFileConflict[]){
   const labels={replace:'整文件替换',delete:'删除',edit:'局部修改'};
@@ -56,7 +62,7 @@ export class DemoFileOperationConflictError extends Error {
  }
 }
 export function validateDemoProposal(raw:unknown,p:Project,previous:Record<string,string>={},allowEmptyChecks=false){
- const parsed=(allowEmptyChecks?demoCodeSchema.extend({checks:z.array(demoCodeSchema.shape.checks.element).max(12)}):demoCodeSchema).parse(raw);
+ const parsed=(allowEmptyChecks?storedDemoCodeSchema.extend({checks:z.array(demoCodeSchema.shape.checks.element).max(64)}):storedDemoCodeSchema).parse(raw);
  for(const check of parsed.checks)for(const step of check.steps)if(step.repeat!==undefined){
   if(!['fill','expectValue'].includes(step.action)||step.value?.length!==1)throw new Error('repeat 仅用于 fill 或 expectValue，value 必须为单个字符');
   step.value=step.value.repeat(step.repeat);delete step.repeat;
@@ -71,7 +77,8 @@ export function validateDemoProposal(raw:unknown,p:Project,previous:Record<strin
  if(conflicts.length)throw new DemoFileOperationConflictError(conflicts);
  const files={...previous};for(const file of proposal.deletePaths)delete files[file];for(const file of proposal.files)files[file.path]=file.content;
  for(const edit of proposal.edits||[]){const source=files[edit.path];if(source===undefined||!source.includes(edit.search)||source.indexOf(edit.search)!==source.lastIndexOf(edit.search))throw new Error('局部修改的原文必须在现有文件中唯一匹配：'+edit.path);files[edit.path]=source.replace(edit.search,()=>edit.replace);}
- if(!files['src/App.tsx']||!files['src/styles.css'])throw new Error('必须提供 src/App.tsx 和 src/styles.css');
+ const missing=['src/App.tsx','src/styles.css'].filter(path=>!files[path]);
+ if(missing.length)throw new DemoEntryFilesError(missing,files,proposal);
  if(Object.keys(files).length>30||Object.values(files).join('').length>240000)throw new Error('Demo 源码过大，请保持精简');
  const ids=new Set(demoInput(p).cards.map(c=>c.id));
  if(proposal.bindings.some(b=>!ids.has(b.cardId))||proposal.checks.some(c=>c.cardIds.some(id=>!ids.has(id))))throw new Error('只能关联本项目本期具体需求');

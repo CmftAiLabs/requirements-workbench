@@ -468,15 +468,17 @@ test('Mastra intake extracts editable overview and concrete candidates in one bo
     assert.match(prompt, /不能只放在概要中导致最终只整合具体卡的 PRD 漏掉要求/);
   });
 });
-test('Mastra intake repairs once for false evidence and never returns unchecked candidates', async () => {
+test('Mastra intake retains valid candidates and reports discarded unsupported cards without a full retry', async () => {
   const bad = intakeTree(); bad.cards[1].evidence.permission![0].quote = '编造所有人可读客户';
   await withGateway((_, attempt) => ({ content: JSON.stringify(attempt === 1 ? bad : intakeTree()) }), async requests => {
-    assert.equal((await extractIntakeRequirements([material], [])).length, 2);
-    assert.equal(requests.length, 2);
+    const result=await extractIntakeRequirements([material], []);
+    assert.equal(result.length, 1);assert.match(result[0].issues.join('；'),/未找到有效来源/);
+    assert.equal(requests.length, 1);
   });
   await withGateway(() => ({ content: JSON.stringify(bad) }), async requests => {
-    await assert.rejects(() => extractIntakeRequirements([material], []), /原文/);
-    assert.equal(requests.length, 2);
+    const result=await extractIntakeRequirements([material], []);
+    assert.equal(result.length,1);assert.equal(result[0].assessment,'待澄清');
+    assert.equal(requests.length, 1);
   });
 });
 
@@ -602,7 +604,7 @@ test('one long document also uses batches, and an invalid plan is rejected befor
     assert.equal(requests.length,2); // plan + one repair, without filling any cards
   });
 });
-test('batch evidence repairs once and a failed batch never returns a partial result or schedules remaining batches', async()=>{
+test('batch evidence failure becomes a visible field question while other batches continue', async()=>{
   const cards=manyIntakeCards(),progress:string[]=[];
   await withGateway(async body=>{
     const {prompt,data}=intakeRequest(body);
@@ -612,10 +614,11 @@ test('batch evidence repairs once and a failed batch never returns a partial res
     else await new Promise(resolve=>setTimeout(resolve,60));
     return {content:JSON.stringify(result)};
   },async requests=>{
-    await assert.rejects(()=>extractIntakeRequirements(manyMaterials(),[],label=>{progress.push(label)}),/原文/);
-    assert.equal(requests.length,4); // outline + two workers + one repair; third batch is never started
-    assert.equal(requests.some(body=>intakeRequest(body).data.targetKeys?.includes(cards[4].key)),false);
-    assert.equal(progress.some(label=>label.includes('核对需求范围与原文依据')),false);
+    const result=await extractIntakeRequirements(manyMaterials(),[],label=>{progress.push(label)});
+    assert.equal(result.length,cards.length);assert.match(result[0].fields.permission,/待明确/);assert.equal(result[0].evidence.permission,undefined);
+    assert.equal(requests.length,4); // outline + all three batches, no discarded valid work
+    assert.equal(requests.some(body=>intakeRequest(body).data.targetKeys?.includes(cards[4].key)),true);
+    assert.equal(progress.some(label=>label.includes('核对需求范围与原文依据')),true);
   });
 });
 test('batch output cannot omit planned keys or change hierarchy, even after the single repair', async()=>{
@@ -872,8 +875,9 @@ test('suggestion request explicitly requires evidenced human-reviewed resolution
 test('missing-role resolution gets one repair and stays open if the model cannot supply real evidence', async () => {
   const invalid = resolutionSuggestion(); invalid.problemResolutions[0].evidence.pop();
   const current = resolutionCard();
-  await withGateway(() => ({ content: JSON.stringify(invalid) }), async requests => {
-    await assert.rejects(() => suggestChanges(current, [material]), /缺少产品经理/);
+  await withGateway((_body,attempt) => ({ content: JSON.stringify(attempt===1?invalid:{references:[{id:'resolution:0',evidence:invalid.problemResolutions[0].evidence}]}) }), async requests => {
+    const result=await suggestChanges(current,[material]);
+    assert.equal(result.problemResolutions?.length,0);assert.match(result.issues.join('；'),/依据尚未核实/);
     assert.equal(requests.length, 2);
     assert.equal(current.blockers[0].resolved, false);
   });
