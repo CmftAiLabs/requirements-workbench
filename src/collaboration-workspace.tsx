@@ -5,12 +5,12 @@ import {conclusionPresentation} from '../shared/conclusion-presentation';
 import {ChatComposer} from './chat-composer';
 import {attachmentDisabledReason,pendingAttachmentMessages} from '../shared/chat-attachments';
 import {hasUnresolvedContent} from '../shared/requirement-clarity';
-import {PARTICIPANTS,isQuestionRecipient,type ParticipantId} from '../shared/participants';
+import {PARTICIPANTS,isQuestionRecipient,personFor,type ParticipantId} from '../shared/participants';
 import {ConversationThread} from './conversation-thread';
 import {CardHistory} from './card-history';
 import {DemoPreview,type DemoLocation} from './demo-preview';
 import {waitingQuestion,waitingLabel} from '../shared/discussion';
-import {useEffect,useRef,useState,type CSSProperties,type ReactNode} from 'react';
+import {useEffect,useId,useRef,useState,type CSSProperties,type ReactNode} from 'react';
 import {ArrowDown,ArrowLeft,ArrowRight,Check,CheckCheck,CheckCircle2,Crosshair,ChevronDown,ChevronRight,FileText,FolderOpen,Info,Layers3,LoaderCircle,Maximize2,MessageCircle,MoreHorizontal,PanelLeftClose,PanelLeftOpen,Play,RotateCcw,Search,Send,SlidersHorizontal,Sparkles,Users,X} from 'lucide-react';
 import {FIELDS,ROLES,cardStatus,type Action,type Card,type FieldKey,type Fields,type Job,type Project,type Role} from '../shared/types';
 import {getChatDisabledReason,type ChatOperation} from '../shared/chat-policy';
@@ -27,6 +27,13 @@ type Props={modelPicker?:ReactNode;project:Project;card?:Card;role:Role;particip
 const time=(s:string)=>new Date(s).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
 const passed=(c:Card,role:'pm'|'business')=>c.approvals[role]?.result==='通过'&&c.approvals[role]?.revision===c.revision&&c.approvals[role]?.round===c.round;
 const unknown=hasUnresolvedContent;
+const businessOwner=personFor('business');
+
+function ActionMention({role}:{role:'pm'|'business'}){
+ const recipient=personFor(role);
+ return <span className="co-action-mention" title={recipient.title}>@{recipient.name}</span>;
+}
+
 const summaryPreview=(value:string)=>{
  const text=value.replace(/\s+/g,' ').trim();
  if(text.length<=110)return text;
@@ -35,6 +42,7 @@ const summaryPreview=(value:string)=>{
 };
 
 export function CollaborationWorkspace({modelPicker,project:p,card:c,role,participantId,busy,jobs,modelConfigured,setCard,mutate,suggest,generateDemo,organize,sendMaterials,resumeDiscussion,goMaterials,onManage}:Props){
+ const actionRecipientId=useId();
  const {value:conversationDraft,setText,setReplyTo,setFiles,clear:clearDraft}=useConversationDraft(`${p.id}:${c?.id}:${participantId}`);
  const {text,replyTo,files}=conversationDraft;
  const [details,setDetails]=useState(false),[expanded,setExpanded]=useState(false),[collapsed,setCollapsed]=useState(false),[mobilePool,setMobilePool]=useState(false),[mobile,setMobile]=useState<'chat'|'preview'>('chat'),[reload,setReload]=useState(0),[ratio,setRatio]=useState(55),[adjust,setAdjust]=useState(false),[decisions,setDecisions]=useState<Partial<Record<FieldKey,'采纳'|'不采纳'>>>({}),[overrides,setOverrides]=useState<Partial<Record<FieldKey,string>>>({}),[reject,setReject]=useState(false),[reasonText,setReasonText]=useState(''),[hint,setHint]=useState(''),[edit,setEdit]=useState(false),[editFields,setEditFields]=useState<Fields|null>(null),[editReason,setEditReason]=useState(''),[editStamp,setEditStamp]=useState(0),[editGaps,setEditGaps]=useState('');
@@ -97,12 +105,41 @@ export function CollaborationWorkspace({modelPicker,project:p,card:c,role,partic
   <div className="co-messages" ref={stream}>{c?<><div className="co-topic-note"><span><MessageCircle size={13}/>围绕这项需求沟通</span><p>{c.fields.goal}</p>{c.granularity==='概要'&&<button onClick={()=>goMaterials(c.intakeDraftId)}>到材料箱继续细化 <ArrowRight size={12}/></button>}{!c.included&&<p>本期不纳入：{c.exclusionReason}</p>}</div><ConversationThread retryAssessment={assessmentId=>void resumeDiscussion(c.id,assessmentId)} assessmentBusy={running||!modelConfigured} scrollRef={stream} project={p} openDraft={goMaterials} openCard={setCard} card={c} role={role} participantId={participantId} busy={busy} onAnswer={(question,value)=>{setReplyTo(question.id);draft(value);}}/>{!c.messages.length&&<div className="co-quiet"><Sparkles size={21}/><h3>从一个具体问题开始</h3><p>说说业务场景、不确定的规则，或直接 @Agent。</p></div>}
   {running&&!c.assessments?.some(a=>a.jobId===latestJob?.id&&a.status==='running')&&<article className="co-message agent"><span className="co-avatar agent"><Sparkles size={17} aria-hidden="true"/></span><div className="co-message-content"><div className="co-message-meta"><strong>需求助手</strong><span>Agent</span></div><div className="co-agent-working"><LoaderCircle className="spin" size={15}/><span>{latestJob?.label||'正在分析本轮讨论'}<small>新卡和修改建议都由人核对，你可以继续发言。</small></span></div></div></article>}
   {latestJob?.status==='failed'&&!c.assessments?.some(a=>a.jobId===latestJob.id&&a.status==='failed')&&!running&&(!c.suggestion||latestJob.createdAt>c.suggestion.createdAt)&&<div className="co-inline-error"><p>{latestJob.error||'本轮分析未完成，请重试。'}</p><button disabled={!!policy('suggest')} title={policy('suggest')} onClick={()=>void (latestJob?.kind==='listen'?resumeDiscussion(c.id):startAgent())}>重新分析</button></div>}
-  {s&&!running&&<article className="co-message agent"><span className="co-avatar agent"><Sparkles size={17} aria-hidden="true"/></span><div className="co-message-content"><div className="co-message-meta"><strong>需求助手</strong><span>Agent</span><time>{time(s.createdAt)}</time></div><div className="co-conclusion"><div className="co-conclusion-heading"><Sparkles size={14}/><strong>{s.origin==='example'?'参考结论':presentation.actionable?'本轮建议':'本轮回应'}</strong></div><p className="co-conclusion-summary">{presentation.actionable||remainingIssues.length?summaryPreview(s.summary):s.summary}</p>
+  {s&&!running&&<article className="co-message agent"><span className="co-avatar agent"><Sparkles size={17} aria-hidden="true"/></span><div className="co-message-content"><div className="co-message-meta"><strong>需求助手</strong><span>Agent</span><time>{time(s.createdAt)}</time></div><div className="co-conclusion">
+  <div className="co-conclusion-heading">
+   <Sparkles size={14} aria-hidden="true"/>
+   <strong>{s.origin==='example'?'参考结论':presentation.actionable?'本轮建议':'本轮回应'}</strong>
+   {presentation.actionable&&<span id={actionRecipientId} className="co-action-owner"><ActionMention role="pm"/> 待采纳</span>}
+  </div>
+  <p className="co-conclusion-summary">{presentation.actionable||remainingIssues.length?summaryPreview(s.summary):s.summary}</p>
   {(presentation.actionable||remainingIssues.length>0)&&<details className="co-conclusion-details" key={`${c.id}:${s.id}`}><summary><ChevronRight size={12}/><span className="co-details-show">查看修改详情</span><span className="co-details-hide">收起修改详情</span><small>{[s.changes.length?`${s.changes.length} 项字段`:'',remainingIssues.length?`${remainingIssues.length} 项待核对`:''].filter(Boolean).join(' · ')}</small></summary><div className="co-conclusion-detail-body"><section className="co-conclusion-full-summary"><h3>完整总结</h3><p>{s.summary}</p></section>{s.changes.length>0&&<div className="co-changes">{s.changes.map(change=><div key={change.field}><span>{FIELDS.find(([key])=>key===change.field)?.[1]}</span><p>{change.after}</p></div>)}</div>}{remainingIssues.length>0&&<section className="co-conclusion-issues"><h3>待核对事项</h3><ul>{remainingIssues.map(issue=><li key={issue}>{issue}</li>)}</ul></section>}</div></details>}
   {(!!plan?.changedFields.length||resolved.length>0)&&(passed(c,'pm')||passed(c,'business')||p.phase!=='可讨论')?<p className="co-impact">采纳后，本卡已有确认失效，需要重新确认{p.phase!=='可讨论'?`；项目由“${p.phase}”回到“可讨论”`:''}。其他卡片的确认保留。</p>:null}
-  {presentation.actionable&&<div className="co-conclusion-actions"><button className="primary" disabled={!!policy('applySuggestion')} title={policy('applySuggestion')} onClick={()=>void adopt()}><Check size={14}/>{adoptionLabel}</button><button disabled={busy||role!=='pm'} title={role!=='pm'?'由产品经理调整；其他成员可直接在群里补充意见':''} onClick={()=>setAdjust(true)}><SlidersHorizontal size={13}/>调整</button></div>}</div></div></article>}
+  {presentation.actionable&&<div className="co-conclusion-actions">
+   <button className="primary" aria-describedby={actionRecipientId} disabled={!!policy('applySuggestion')} title={policy('applySuggestion')} onClick={()=>void adopt()}><Check size={14}/>{adoptionLabel}</button>
+   <button aria-describedby={actionRecipientId} disabled={busy||role!=='pm'} title={role!=='pm'?'由产品经理调整；其他成员可直接在群里补充意见':''} onClick={()=>setAdjust(true)}><SlidersHorizontal size={13}/>调整</button>
+  </div>}</div></div></article>}
   {!s&&c.suggestion?.status==='已失效'&&!running&&<div className="co-inline-note">讨论已有补充，上一轮建议已失效。<button disabled={!!policy('suggest')} onClick={()=>void startAgent()}>按最新讨论更新原型</button></div>}
-  {!s&&!running&&!waiting&&c.included&&c.granularity!=='概要'&&(confirmed||passed(c,'pm')||cardStatus(c)==='可确认')&&<div className={`co-confirmation ${confirmed?'complete':''}`}>{confirmed?<><CheckCircle2 size={20}/><div><strong>这项需求已确认</strong><p>产品与业务已确认同一版结论，可以继续下一项需求。</p></div></>:passed(c,'pm')?<><span className="co-avatar business">陈</span><div><strong>产品已确认，等待业务核对</strong><p>请结合右侧原型，确认本轮业务规则。</p><div className="co-confirm-actions"><button className="primary" disabled={!!policy('businessConfirm')} title={policy('businessConfirm')} onClick={()=>void mutate({type:'businessConfirm',cardId:c.id,result:'通过',comment:'结合本轮结论与原型确认业务需求。'},p.stamp,'业务已确认本轮需求')}><CheckCheck size={14}/>确认本轮需求</button><button disabled={!!policy('businessReject')} title={policy('businessReject')} onClick={()=>{setReject(true);setReasonText('');}}>需要调整</button></div></div></>:cardStatus(c)==='可确认'?<><CheckCircle2 size={19}/><div><strong>当前需求已具备确认条件</strong><p>产品核对后发起业务确认。</p><button className="primary" disabled={!!policy('pmConfirm')} title={policy('pmConfirm')} onClick={()=>void mutate({type:'pmConfirm',cardId:c.id},p.stamp,'产品已确认，请业务负责人核对')}>发起业务确认 <ArrowRight size={13}/></button></div></>:null}</div>}
+  {!s&&!running&&!waiting&&c.included&&c.granularity!=='概要'&&(confirmed||passed(c,'pm')||cardStatus(c)==='可确认')&&
+   <div className={`co-confirmation ${confirmed?'complete':''}`}>
+    {confirmed?<><CheckCircle2 size={20}/><div><strong>这项需求已确认</strong><p>产品与业务已确认同一版结论，可以继续下一项需求。</p></div></>:passed(c,'pm')?<>
+     <span className="co-avatar business" aria-hidden="true">{businessOwner.initial}</span>
+     <div>
+      <strong>产品已确认，等待业务核对</strong>
+      <p id={actionRecipientId}><ActionMention role="business"/> 请结合右侧原型确认本轮业务规则。</p>
+      <div className="co-confirm-actions">
+       <button className="primary" aria-describedby={actionRecipientId} disabled={!!policy('businessConfirm')} title={policy('businessConfirm')} onClick={()=>void mutate({type:'businessConfirm',cardId:c.id,result:'通过',comment:'结合本轮结论与原型确认业务需求。'},p.stamp,'业务已确认本轮需求')}><CheckCheck size={14}/>确认本轮需求</button>
+       <button aria-describedby={actionRecipientId} disabled={!!policy('businessReject')} title={policy('businessReject')} onClick={()=>{setReject(true);setReasonText('');}}>需要调整</button>
+      </div>
+     </div>
+    </>:<>
+     <CheckCircle2 size={19}/>
+     <div>
+      <strong>当前需求已具备确认条件</strong>
+      <p id={actionRecipientId}><ActionMention role="pm"/> 请核对需求并发起业务确认。</p>
+      <button className="primary" aria-describedby={actionRecipientId} disabled={!!policy('pmConfirm')} title={policy('pmConfirm')} onClick={()=>void mutate({type:'pmConfirm',cardId:c.id},p.stamp,'产品已确认，请业务负责人核对')}>发起业务确认 <ArrowRight size={13}/></button>
+     </div>
+    </>}
+   </div>}
   {c&&<IdleClarification projectId={p.id} card={c} enabled={modelConfigured&&c.included&&c.granularity!=='概要'&&!confirmed&&!presentation.actionable&&!busy&&!details&&!adjust} typing={!!text.trim()||!!replyTo} waiting={!!waiting} running={running} onDiscuss={draft}/>}
   {confirmed&&next&&<button className="co-next" onClick={()=>setCard(next.id)}>下一项：{next.title}<ArrowRight size={14}/></button>}{!pending.length&&concreteCards(p).some(c=>c.included)&&<button className="co-next" onClick={onManage}>本期需求均已确认，查看 PRD 与整体评审<ArrowRight size={14}/></button>}
   </>:<div className="co-empty-state"><div className="co-empty-symbol"><MessageCircle size={26}/><Sparkles size={17}/></div><h2>从一项需求，开始共创</h2><p>上传资料，整理出需要沟通的需求。<br/>在群里讨论，核对原型，一起确认。</p><button className="primary" onClick={()=>goMaterials()}>前往材料箱<ArrowRight size={14}/></button></div>}</div>

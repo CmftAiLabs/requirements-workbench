@@ -119,3 +119,6 @@
 .co-input-bottom>span{white-space:nowrap}
 @container(max-width:540px){.co-input-bottom>span{display:none}}
 @container(max-width:320px){.co-input-bottom .co-compose-tools{gap:4px}.co-input-bottom .co-mention>span{display:none}.co-input-bottom .co-model-picker{max-width:150px}}
+.co-conclusion-heading{flex-wrap:wrap}
+.co-action-owner{font-size:var(--font-size-meta);color:var(--text-muted)}
+.co-action-mention{color:var(--brand-primary);font-weight:600;white-space:nowrap}

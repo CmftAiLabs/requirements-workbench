@@ -8,6 +8,8 @@ import {workspacePRD,prdWord,demoZip} from '../server/workspace-export.ts';
 import {demoAccess,demoModel,liveSuggestion,previewFields} from '../shared/crm-demo.ts';
 import {buildDemoHTML} from '../shared/project-demo.ts';
 import {cardStatus,type SuggestionDraft,type Project} from '../shared/types.ts';
+import {participantById,type ParticipantId} from '../shared/participants';
+import {discussionReplayProject} from './fixtures/discussion-replay';
 function proposed(){
  const p=createCRMExperience(),c=p.cards[0];
  const evidence=c.messages.filter(m=>m.role==='business'||m.role==='reviewer').map(m=>({messageId:m.id,quote:m.text}));
@@ -25,6 +27,40 @@ test('一次采纳保存结论、解决有依据的问题并发起确认，业�
  const {p,c,action}=proposed();applyAction(p,action,'pm');const saved=p.cards[0];assert.equal(saved.revision,2);assert.equal(saved.blockers[0].resolved,true);assert.equal(saved.approvals.pm?.result,'通过');assert.equal(saved.approvals.business,undefined);assert.equal(cardStatus(saved),'可确认');assert.match(saved.fields.permission,/立即撤销/);
  applyAction(p,{type:'businessConfirm',cardId:saved.id,result:'通过',comment:'业务核对通过'},'business');assert.equal(cardStatus(p.cards[0]),'已确认');
 });
+test('沟通群在采纳和确认按钮处标出当前负责人，处理完成后移除待办提醒',async()=>{
+ const {createElement}=await import('react');
+ const {renderToStaticMarkup}=await import('react-dom/server');
+ const {registerHooks}=await import('node:module');
+ const cssHook=registerHooks({load(url,context,next){return url.endsWith('.css')?{format:'module',source:'export {};',shortCircuit:true}:next(url,context);}});
+ const {CollaborationWorkspace}=await import('../src/collaboration-workspace').finally(()=>cssHook.deregister());
+ const renderMentions=(project:Project,participantId:ParticipantId)=>{
+  const html=renderToStaticMarkup(createElement(CollaborationWorkspace,{
+   project,card:project.cards[0],role:participantById(participantId)!.role,participantId,busy:false,jobs:[],modelConfigured:true,
+   setCard:()=>{},mutate:async()=>true,suggest:async()=>true,generateDemo:async()=>true,organize:async()=>true,
+   sendMaterials:async()=>true,resumeDiscussion:async()=>true,goMaterials:()=>{},onManage:()=>{},
+  }));
+  return Array.from(html.matchAll(/class="co-action-mention"[^>]*>(@[^<]+)/g),match=>match[1]);
+ };
+
+ for(const proposer of ['business-operations','pm'] as const){
+  const {p,c}=discussionReplayProject();
+  assert.deepEqual(renderMentions(p,'business-operations'),['@林舟']);
+  applyAction(p,{type:'message',cardId:c.id,text:'建议提交成功后显示申请编号，方便员工查询。'},participantById(proposer)!.role,proposer);
+  const message=c.messages[0];
+  attachSuggestion(p,c.id,{summary:'提交成功后显示申请编号。',issues:[],changes:[{
+   field:'flow',before:c.fields.flow,after:c.fields.flow+' 成功后显示申请编号。',reason:'方便查询',
+   evidence:[{messageId:message.id,quote:message.text}],
+  }]},c.revision,c.messages.length);
+  assert.deepEqual(renderMentions(p,proposer),['@林舟']);
+  applyAction(p,{type:'adoptConclusion',cardId:c.id,suggestionId:c.suggestion!.id,decisions:{flow:'采纳'}},'pm','pm');
+  assert.deepEqual(renderMentions(p,'pm'),['@陈敏']);
+  assert.deepEqual(renderMentions(p,'business-operations'),['@陈敏']);
+  assert.deepEqual(renderMentions(p,'business'),['@陈敏']);
+  applyAction(p,{type:'businessConfirm',cardId:c.id,result:'通过',comment:''},'business','business');
+  assert.deepEqual(renderMentions(p,'business'),[]);
+ }
+});
+
 test('不完整采纳只保存结论，不越过问题或九字段门槛',()=>{
  const {p,action}=proposed();applyAction(p,{...action,resolvedBlockerIds:[]},'pm');assert.equal(p.cards[0].approvals.pm,undefined);assert.equal(cardStatus(p.cards[0]),'待澄清');
  const next=proposed();next.p.cards[0].fields.quality='待明确';applyAction(next.p,next.action,'pm');assert.equal(next.p.cards[0].approvals.pm,undefined);
