@@ -10,7 +10,7 @@ import {DemoPreview,type DemoLocation} from './demo-preview';
 import {waitingQuestion,waitingLabel} from '../shared/discussion';
 import type {DiscussionReminder} from '../shared/discussion-reminders';
 import {useEffect,useId,useRef,useState,type CSSProperties,type ReactNode} from 'react';
-import {ArrowDown,ArrowLeft,ArrowRight,Check,CheckCheck,CheckCircle2,ChevronDown,ChevronRight,FileText,FolderOpen,Info,Layers3,ListChecks,LoaderCircle,Maximize2,MessageCircle,MoreHorizontal,PanelLeftClose,PanelLeftOpen,Play,RotateCcw,Search,Send,SlidersHorizontal,Sparkles,Users,X} from 'lucide-react';
+import {ArrowDown,ArrowLeft,ArrowRight,Check,CheckCheck,CheckCircle2,ChevronDown,ChevronRight,FileText,FolderOpen,Info,Layers3,ListChecks,LoaderCircle,Maximize2,MessageCircle,PanelLeftClose,PanelLeftOpen,Play,RotateCcw,Search,Send,SlidersHorizontal,Sparkles,Users,X} from 'lucide-react';
 import {FIELDS,ROLES,cardStatus,type Action,type Card,type FieldKey,type Job,type Project,type Role} from '../shared/types';
 import {getChatDisabledReason,type ChatOperation} from '../shared/chat-policy';
 import {resolutionDisabledReason} from '../shared/resolution-policy';
@@ -138,10 +138,7 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
       </button>
      </div>}
     </div>
-    <div className="co-header-people">
-     <div className="co-avatars">{PARTICIPANTS.map(person=><i key={person.id} title={`${person.name} · ${person.title}`} aria-label={`${person.name} · ${person.title}`}>{person.initial}</i>)}<i title="需求助手" aria-label="需求助手"><Sparkles size={14} aria-hidden="true"/></i></div>
-     {c&&<button aria-label="查看需求详情" aria-haspopup="dialog" title="查看需求详情" onClick={()=>setDetails(true)}><MoreHorizontal size={20}/></button>}
-    </div>
+    <div className="co-avatars">{PARTICIPANTS.map(person=><i key={person.id} title={`${person.name} · ${person.title}`} aria-label={`${person.name} · ${person.title}`}>{person.initial}</i>)}<i title="需求助手" aria-label="需求助手"><Sparkles size={14} aria-hidden="true"/></i></div>
    </header>
    <div className="co-mobile-switch"><button type="button" className="co-mobile-pool-toggle" ref={mobilePoolToggle} aria-expanded={mobilePool} aria-controls={`requirement-pool-${p.id}`} onClick={()=>{setCollapsed(false);setMobilePool(true);}}><PanelLeftOpen size={16}/>需求</button><button className={mobile==='chat'?'active':''} onClick={()=>setMobile('chat')}>沟通</button><button className={mobile==='preview'?'active':''} onClick={()=>setMobile('preview')}>原型预览</button></div>
   {waiting&&<div className="co-waiting" role="status"><span><strong>{waitingLabel(c!,role,participantId)}</strong> · {waiting.question}</span>{isQuestionRecipient(waiting,role,participantId)&&<button onClick={()=>{setReplyTo(waiting.id);input.current?.focus();}}>我来补充</button>}</div>}

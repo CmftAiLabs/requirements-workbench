@@ -80,7 +80,6 @@ input[type="checkbox"] { accent-color:var(--brand-primary); }
 .co-chat-eyebrow { color:var(--text-muted); font-size:var(--font-size-meta); }
 .co-chat-header h1 { color:var(--text-primary); font-size:var(--font-size-subtitle); line-height:1.5;
   display:-webkit-box; -webkit-box-orient:vertical; -webkit-line-clamp:2; overflow:hidden; overflow-wrap:anywhere; }
-.co-header-people > button { width:34px; min-height:34px; color:var(--text-secondary); }
 .co-avatars i { width:28px; height:28px; font-size:var(--font-size-meta); }
 .co-messages { padding:24px; scrollbar-gutter:stable; }
 .co-topic-note { padding-bottom:16px; margin-bottom:24px; }
@@ -217,7 +216,6 @@ input[type="checkbox"] { accent-color:var(--brand-primary); }
   .intake-source-workspace { grid-template-columns:240px minmax(0,1fr); gap:16px; }
   .intake-material-toolbar { padding:16px; }
   .intake-material-list { padding:0 16px; }
-  .co-header-people .co-avatars { display:none; }
 }
 @media (max-width:950px) {
   .co-mobile-switch { min-height:var(--mobile-switch-height); padding:6px 16px; gap:8px; align-items:center; }
