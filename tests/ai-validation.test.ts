@@ -3,7 +3,7 @@ import test from 'node:test';
 import { createServer } from 'node:http';
 import { Mastra } from '@mastra/core/mastra';
 import { FIELDS, type Card, type Evidence, type FieldKey, type Fields, type IntakeCandidate, type IntakeDraft, type Material } from '../shared/types.js';
-import { classifyModelFailure, createRuntime, extractIntakeRequirements, extractRequirements, parseModelJSON, probeModel, refineIntakeRequirement, suggestChanges, suggestModuleGrouping, validateExtractedCards, validateIntakeCandidates, validateSuggestionDraft } from '../server/ai.js';
+import { classifyModelFailure, createRuntime, extractIntakeRequirements, extractRequirements, parseModelJSON, probeModel, refineIntakeRequirement, runAnalysis, suggestChanges, suggestModuleGrouping, validateExtractedCards, validateIntakeCandidates, validateSuggestionDraft } from '../server/ai.js';
 import {createProject} from '../server/domain';
 
 const material: Material = { id: 'm1', name: '访谈记录', kind: 'text', location: '访谈第 1 段',
@@ -374,7 +374,7 @@ test('resolution requires all dependent fields to be concrete in the current or 
 });
 
 // Local HTTP fixtures exercise Mastra itself; these tests never contact a real model.
-type GatewayResult = { content?: string; status?: number; error?: string; finishReason?:string };
+type GatewayResult = { content?: string; status?: number; error?: string; errorCode?: string; finishReason?:string };
 async function withGateway(respond: (body: Record<string, unknown>, attempt: number) => GatewayResult | Promise<GatewayResult>, run: (requests: Record<string, unknown>[],scopeAudits:Record<string,unknown>[]) => Promise<void>, modelName = 'local-fixture',auditRespond: (body:Record<string,unknown>,attempt:number)=>GatewayResult=()=>({content:'{"onTopic":true,"reason":""}'})) {
   // Task generations and independent scope audits have separate fixtures and
   // counters, so bounded generation repair assertions remain meaningful.
@@ -390,7 +390,7 @@ async function withGateway(respond: (body: Record<string, unknown>, attempt: num
     const result = audit?auditRespond(data,scopeAudits.length):await respond(data, requests.length);
     if (result.status) {
       response.writeHead(result.status, { 'content-type': 'application/json' });
-      response.end(JSON.stringify({ error: { message: result.error } }));
+      response.end(JSON.stringify({ error: { message: result.error, code: result.errorCode } }));
     } else if (data.stream) {
       response.writeHead(200, { 'content-type': 'text/event-stream' });
       response.end(`data: ${JSON.stringify({ id: 'local', object: 'chat.completion.chunk', created: 1, model: 'local-fixture', choices: [{ index: 0, delta: { role: 'assistant', content: result.content || '' }, finish_reason: null }] })}\n\ndata: ${JSON.stringify({ id: 'local', object: 'chat.completion.chunk', created: 1, model: 'local-fixture', choices: [{ index: 0, delta: {}, finish_reason: result.finishReason || 'stop' }] })}\n\ndata: [DONE]\n\n`);
@@ -915,10 +915,18 @@ test('unsupported gateway tools fall back to the same Mastra agent without tools
   });
 });
 test('gateway failures surface a safe message without provider body or key', async () => {
-  await withGateway(() => ({ status: 401, error: 'bad local-fixture-not-a-real-key; private request body' }), async requests => {
-    await assert.rejects(() => extractRequirements([material], []), error => error instanceof Error && /鉴权失败/.test(error.message) && !/local-fixture|private/.test(error.message));
-    assert.equal(requests.length, 1);
-  });
+  for (const [status, errorCode, expected] of [
+    [401, 'invalid_api_key', /鉴权失败/],
+    [403, 'model_access_denied', /鉴权失败/],
+    [403, 'insufficient_user_quota', /调用额度不足/],
+  ] as const) {
+    await withGateway(() => ({ status, errorCode, error: 'bad local-fixture-not-a-real-key; private request body' }), async requests => {
+      const safeMessage = (error: unknown) => error instanceof Error && expected.test(error.message) && !/local-fixture|private/.test(error.message);
+      await assert.rejects(() => extractRequirements([material], []), safeMessage);
+      await assert.rejects(() => runAnalysis('coding-error-fixture', [], undefined, () => 'Fixture', value => value, 128, {coding:true, tools:false}), safeMessage);
+      assert.equal(requests.length, 2);
+    });
+  }
 });
 
 test('讨论结构修复获得具体字段位置，失败时保留明确原因',async()=>{

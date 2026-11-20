@@ -91,13 +91,15 @@ export function classifyModelFailure(error: unknown) {
     if (typeof d.code === 'string' && /CERT|UNABLE_TO_VERIFY_LEAF_SIGNATURE|UNABLE_TO_GET_ISSUER/.test(d.code)) certificateFailure = true;
     if (d.name === 'MastraTimeoutError' || d.name === 'TimeoutError' || ['step','total','firstChunk'].includes(String(d.timeoutType)) || /ETIMEDOUT|UND_ERR_(?:CONNECT|HEADERS|BODY)_TIMEOUT/.test(String(d.code)) || /timed?\s*out|timeout/i.test(String(d.message))) timedOut = true;
     if (typeof d.responseBody === 'string') body += d.responseBody.slice(0, 8000);
-    if (d.code === 'model_not_found') body += ' model_not_found';
+    if (typeof d.code === 'string') body += ' ' + d.code.slice(0, 128);
     if (typeof d.message === 'string') body += d.message.slice(0, 2000);
     current = d.cause;
   }
   const toolsUnsupported = Boolean(status && [400,422].includes(status) && /tools?|function[_ -]?call/i.test(body) && /unsupported|not support|not allowed|不支持|invalid|unknown/i.test(body));
   const modelUnavailable = Boolean(status && [400,404,503].includes(status) && /model_not_found|no available channel|模型不存在|无可用(?:渠道|通道)/i.test(body));
+  const quotaExhausted = status === 403 && /\binsufficient_(?:user_)?quota\b/i.test(body);
   const message = certificateFailure ? '模型服务证书链校验失败，请补齐服务证书链后重试。'
+    : quotaExhausted ? '当前模型调用额度不足，请切换可用模型或联系网关管理员。'
     : status === 401 || status === 403 ? '模型服务鉴权失败，请检查模型密钥及访问权限。'
     : status === 429 ? '模型服务当前限流或额度不足，请稍后重试。'
     : modelUnavailable ? `模型服务不可用（HTTP ${status}）：模型不存在或当前分组没有可用通道。请核对模型名称及密钥所属分组，或联系网关管理员开通通道。`
