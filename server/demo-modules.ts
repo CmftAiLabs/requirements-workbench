@@ -49,7 +49,8 @@ export async function buildModularDemo(p:Project,prior:DemoRevision|undefined,op
  await options.progress('正在核对模块间业务数据');
  const optimistic=!!(options.previewFirst&&prior?.businessContract&&!options.resolvedContract);
  const contractStarted=performance.now();
- let businessContract=options.resolvedContract||(optimistic?{...prior!.businessContract!,inputKey:demoInputKey(p)}:(!options.generate||options.generate===generateDemoCode)?await modelSlot(()=>prepareBusinessContract(p,prior?.businessContract,options.signal)):prior?.businessContract);
+ const contractProgress=async(characters:number)=>{await options.progress(`正在同步模块间数据 · ${characters?`已接收 ${characters.toLocaleString('zh-CN')} 字`:'等待模型响应'}`);};
+ let businessContract=options.resolvedContract||(optimistic?{...prior!.businessContract!,inputKey:demoInputKey(p)}:(!options.generate||options.generate===generateDemoCode)?await modelSlot(()=>prepareBusinessContract(p,prior?.businessContract,options.signal,contractProgress)):prior?.businessContract);
  const contractMs=performance.now()-contractStarted;
  await options.guard();
  const plans=planDemoModules(p,prior?.modules,businessContract,!!options.previewFirst&&!!businessContract),viewport=preferredDemoViewport(p,prior?.viewport),generate=options.generate||generateDemoCode,build=options.build||(options.previewFirst?buildPreview:buildAndCheck);
@@ -110,8 +111,11 @@ export async function buildModularDemo(p:Project,prior:DemoRevision|undefined,op
  }));
  if(failure instanceof BusinessContractChangeRequired&&optimistic){
   await options.guard();await options.progress('本次涉及数据字段变化，正在同步相关模块');
-  const resolvedContract=await modelSlot(()=>prepareBusinessContract(p,prior?.businessContract,options.signal));
+  const fallbackStarted=performance.now();
+  const resolvedContract=await modelSlot(()=>prepareBusinessContract(p,prior?.businessContract,options.signal,contractProgress));
+  const fallbackContractMs=performance.now()-fallbackStarted;
   const result=await buildModularDemo(p,prior,{...options,resolvedContract});
+  result.timings.contractMs=(result.timings.contractMs||0)+contractMs+fallbackContractMs;
   result.timings.totalMs=performance.now()-start;return result;
  }
  if(failure)throw failure;for(const worker of workers)if(worker.status==='rejected')throw worker.reason;

@@ -954,7 +954,7 @@ test('具体问题核对不让无关缺口阻塞字段草稿，仅保留有依�
   });
  }
  await withGateway(()=>({content:JSON.stringify({reviews:[{blockerId:'permission-conflict',resolved:true,preservesUnknowns:false,reason:'删除了无关缺口'}]})}),async()=>{
-  await assert.rejects(()=>reviewResolutionScopes(draft,c,[material]),/遗漏了仍待明确/);
+  const result=await reviewResolutionScopes(draft,c,[material]);assert.deepEqual(result.problemResolutions,[]);assert.match(result.summary,/删除了无关缺口/);assert.match(c.fields.permission,/品牌长度待明确/);
  });
  await withGateway(()=>({content:'{}'}),async()=>{
   const result=await reviewResolutionScopes(draft,c,[material]);assert.equal(result.problemResolutions?.length,0);assert.deepEqual(result.changes,draft.changes);assert.match(result.summary,/字段修改仍可单独审核/);
@@ -966,8 +966,33 @@ test('删除待明确文字也必须核对具体问题，不能绕过缺口保�
  const raw=resolutionSuggestion();raw.changes=[{...suggestion().changes[0],before:c.fields.permission,after:'交接后三天只读'}];
  const draft=validateSuggestionDraft(raw,c,[material],true);
  await withGateway(()=>({content:JSON.stringify({reviews:[{blockerId:'permission-conflict',resolved:true,preservesUnknowns:false,reason:'无依据删除品牌长度缺口'}]})}),async requests=>{
-  await assert.rejects(()=>reviewResolutionScopes(draft,c,[material]),/遗漏了仍待明确/);assert.equal(requests.length,1);
+  const result=await reviewResolutionScopes(draft,c,[material]);assert.deepEqual(result.changes,[]);assert.deepEqual(result.problemResolutions,[]);assert.match(result.summary,/品牌长度缺口/);assert.equal(requests.length,1);assert.match(c.fields.permission,/品牌长度待明确/);
  });
+});
+
+test('HCSWP3 自动核对仅隔离不安全字段及传递依赖，保留独立建议供人工审核',async()=>{
+ const {reviewResolutionScopes}=await import('../server/resolution-scope');const c=resolutionCard();c.fields.permission+='；品牌长度待明确。';
+ const raw=resolutionSuggestion();raw.changes=['permission','flow','acceptance','data'].map(field=>({field:field as FieldKey,before:c.fields[field as FieldKey],after:field==='permission'?'交接后三天只读':'独立或关联修改',reason:'业务说明',evidence:[{messageId:'human1',quote:'保留三天只读权限'}]}));
+ const draft={...validateSuggestionDraft(raw,c,[material],true),dependencies:[{field:'flow' as const,requires:['permission' as const],reason:'权限决定流程'},{field:'acceptance' as const,requires:['flow' as const],reason:'验收依赖流程'}]};
+ const before=structuredClone(c);
+ await withGateway(()=>({content:JSON.stringify({reviews:[{blockerId:'permission-conflict',resolved:false,preservesUnknowns:false,unsafeFields:['permission'],reason:'缺少品牌长度口径，权限字段不得删去该未决规则'}]})}),async()=>{
+  const result=await reviewResolutionScopes(draft,c,[material]);assert.deepEqual(result.changes.map(x=>x.field),['data']);assert.deepEqual(result.dependencies,[]);assert.deepEqual(result.problemResolutions,[]);assert.match(result.summary,/1 项独立字段建议/);assert.match(result.summary,/品牌长度/);assert.deepEqual(c,before);
+ });
+ await withGateway(()=>({content:'{}'}),async()=>{
+  const result=await reviewResolutionScopes(draft,c,[material]);assert.deepEqual(result.changes.map(x=>x.field),['data']);assert.deepEqual(result.problemResolutions,[]);assert.deepEqual(c,before);
+ });
+});
+
+test('共享数据定义使用代码流式生成并可取消，不再沿用普通对话路径',async()=>{
+ const {prepareBusinessContract}=await import('../server/demo-business-contract');const p=createProject('共享数据回归');
+ const source="import {usePrototypeState} from './prototype-state';export interface BusinessState {entries: {id:string}[]} export const initialBusinessState:BusinessState={entries:[]};export function useBusinessState(){return usePrototypeState<BusinessState>('shared.business',initialBusinessState)}";
+ const progress:number[]=[];
+ await withGateway(()=>({content:JSON.stringify({summary:'单据共享',source})}),async requests=>{
+  const result=await prepareBusinessContract(p,undefined,undefined,async n=>{progress.push(n);});assert.equal(result.source,source);assert.equal(requests[0].stream,true);assert.equal(progress[0],0);assert.ok(progress.at(-1)!>0);
+  assert.equal(await prepareBusinessContract(p,result),result);assert.equal(requests.length,1,'相同输入不重复调用');
+ });
+ const abort=new AbortController();abort.abort(new Error('需求已更新'));
+ await withGateway(()=>({content:'{}'}),async requests=>{await assert.rejects(()=>prepareBusinessContract(p,undefined,abort.signal),/需求已更新/);assert.equal(requests.length,0);});
 });
 
 test('省略回答携带原问题和完整选项，边界确认与品牌排除保持各自语境',async()=>{

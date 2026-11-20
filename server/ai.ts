@@ -472,6 +472,7 @@ function materialContext(materials: Material[]) {
 }
 
 export async function runAnalysis<T>(name: string, materials: Material[], card: Card | undefined, buildPrompt: () => string, validate: (raw: unknown) => T, maxOutputTokens = 8192, options: AnalysisOptions<T> = {}): Promise<T> {
+  options.signal?.throwIfAborted();
   const runtime = createRuntime(materials, card, options);
   let scopeRuntime:ReturnType<typeof createRuntime>|undefined;
   const checkScope=async(result:T)=>{
@@ -492,6 +493,7 @@ export async function runAnalysis<T>(name: string, materials: Material[], card: 
     execute: async ({ inputData }) => {
       try { return { ...inputData, raw: await runtime.generate(inputData.prompt, maxOutputTokens) }; }
       catch (error) {
+       options.signal?.throwIfAborted();
        if(error instanceof SafeAIError&&error.code==='output_length'&&options.truncationRecovery){
         await options.onRepair?.('length');
         try{return {...inputData,raw:await runtime.generate(inputData.prompt+'\n\n'+options.truncationRecovery.instruction,options.truncationRecovery.maxOutputTokens)};}
@@ -505,6 +507,7 @@ export async function runAnalysis<T>(name: string, materials: Material[], card: 
       let parsedRaw:unknown;
       try { parsedRaw=parseModelJSON(inputData.raw);return await checkScope(validate(parsedRaw)); }
       catch (error) {
+        options.signal?.throwIfAborted();
         // One bounded repair pass; raw output is untrusted data, not a new instruction.
         const reason = error instanceof SafeAIError ? error.message : options.coding && error instanceof Error ? error.message.slice(0,3000) : '输出结构或原文引用不符合要求。';
         const detail=error instanceof SafeAIError&&error.shapeIssues?JSON.stringify(error.shapeIssues):'';
@@ -526,9 +529,11 @@ export async function runAnalysis<T>(name: string, materials: Material[], card: 
   try {
     const run = await mastra.getWorkflow('analysis').createRun();
     const result = await run.start({ inputData: { task: name } });
+    options.signal?.throwIfAborted();
     if (result.status !== 'success') throw new SafeAIError(safeFailure || 'AI 分析未完成，本次结果未写入。');
     return result.result;
   } catch (error) {
+    options.signal?.throwIfAborted();
     throw error instanceof SafeAIError ? error : new SafeAIError(safeFailure || 'AI 分析未完成，本次结果未写入。');
   }
 }
