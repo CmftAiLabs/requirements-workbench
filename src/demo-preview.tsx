@@ -28,8 +28,8 @@ export function DemoPreview({project:p,card:c,running,expanded,onExpand,onManage
  const legacy=!!(p.demo||p.example),html=useMemo(()=>generated?.url?'':generated?.html||(legacy&&c?buildDemoHTML(p,c):''),[generated?.url,generated?.html,legacy,p,c?.id]),suggestion=c?liveSuggestion(c):undefined;
  const update=useMemo(()=>c?presentDemoChanges(c):undefined,[c]);
  const demoRunning=!!demoJob&&['queued','running'].includes(demoJob.status),demoFailed=demoJob?.status==='failed'&&(!generated?.revision||demoJob.createdAt>generated.revision.createdAt);
- const statusLabel=generated?.revision?generated.stale?'未同步':generated.draft?'待采纳':'已同步':legacy?'参考原型':'未生成';
- const statusDescription=generated?.revision?generated.stale?'上次原型尚未同步当前需求':generated.draft?'当前原型包含尚未采纳的需求草稿':'原型已同步当前需求':legacy?'参考原型，尚未生成项目代码':'尚未生成项目原型';
+ const statusLabel=generated?.revision?generated.stale?'未同步':generated.draft?(suggestion?.reviewRole==='business'?'待业务确认':'待采纳'):'已同步':legacy?'参考原型':'未生成';
+ const statusDescription=generated?.revision?generated.stale?'上次原型尚未同步当前需求':generated.draft?(suggestion?.reviewRole==='business'?'原型包含待业务确认的产品变更':'当前原型包含尚未采纳的需求草稿'):'原型已同步当前需求':legacy?'参考原型，尚未生成项目代码':'尚未生成项目原型';
  // Keep the trusted shell and its in-memory business data across compatible updates.
  const shellSource=useMemo(()=>({url:generated?.url,key:generated?.revision?.artifactId}),[p.id,generated?.revision?.businessContract?.runtimeKey||generated?.revision?.businessContract?.source,!!generated?.revision?.modules]);
  useEffect(()=>{sendModules();},[generated?.revision]);

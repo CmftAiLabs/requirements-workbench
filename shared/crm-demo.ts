@@ -24,7 +24,7 @@ export function demoModel(project:Project,card:Card){
  const relatedTransfer=demoKind(card)==='notification'?project.cards.find(c=>c.included&&demoKind(c)==='transfer'):undefined;
  const access=demoAccess(relatedTransfer?relatedTransfer.fields:fields);
  return {projectName:project.name,cardId:card.id,title:card.title,revision:card.revision,suggestionId:suggestion?.id||null,suggestionOrigin:suggestion?.origin||'model',
-  draft:!!suggestion,status:suggestion?'原型草稿 · 待产品采纳':cardStatus(card)==='已确认'?'本需求已确认':'当前方案 · 待确认',
+  draft:!!suggestion,status:suggestion?(suggestion.reviewRole==='business'?'原型草稿 · 待业务确认':'原型草稿 · 待产品采纳'):cardStatus(card)==='已确认'?'本需求已确认':'当前方案 · 待确认',
   kind:demoKind(card),included:card.included,fields,access,relatedCardId:relatedTransfer?.id||null,relatedRevision:relatedTransfer?.revision||null,
   notifications:project.cards.some(c=>c.included&&/通知/.test(c.title)),version:versionLabel(project)};
 }

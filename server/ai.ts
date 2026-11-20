@@ -1,3 +1,4 @@
+import {interfaceTitleSuggestion} from '../shared/interface-title';
 import {isWithdrawnAnswer,withdrawalCandidates} from '../shared/question-lifecycle';
 import {questionAnswerCandidate} from '../shared/question-answer';
 import {questionRoutingRules} from './question-routing';
@@ -742,6 +743,8 @@ export async function repairSuggestionEvidence(raw:unknown,card:Card,materials:M
  return draft;
 }
 export async function suggestChanges(card: Card, materials: Material[], projectCards: Card[] = [],progress?:DiscussionProgress): Promise<SuggestionDraft> {
+  const titleChange = interfaceTitleSuggestion(card);
+  if (titleChange) return titleChange;
   const context = materials.filter(material => material.text.trim()).map(({ id, name, location, text }) => ({ id, name, location, text }));
   const messages = discussionMessages(card).map(message=>({...message,person:personLabel(message)}));
   const otherCards = projectCards.filter(item => item.id !== card.id).map(item => ({
@@ -754,6 +757,7 @@ export async function suggestChanges(card: Card, materials: Material[], projectC
   const draft=await runAnalysis('propose-card-field-changes', materials, card, () => `${expertPerspectives}
 围绕本轮话题核对主流程、权限、异常恢复、数据、依赖和验收的真实关联影响，不强制三方发言。
 任务：结合当前卡片、真实材料与多人沟通，同时提出必要的字段修改建议和有证据的问题解决建议，供产品经理审核勾选。只提出变化字段；不要重复 before=after，也不要改卡片身份、类型、状态、审批或版本。
+以对话里的页面、按钮、页头等具体对象和新文案为准。明确的界面文案修改写入功能与流程字段，逐字保留新文案；需求卡标题只有明确提到卡片本身时才交给产品经理编辑。
 只评估当前卡片：issues 仅列仍阻碍当前需求明确的缺失、冲突或真实依赖。projectCards 是其他卡片的范围与状态摘要；其他能力已单独建卡，或 included=false 已移出本期，不得再因为未写在当前卡片九字段里而列成本卡问题。不重复要求确认已完成的排除决定，也不把材料中的所有诉求都塞进当前卡片。若存在直接影响当前卡片的跨卡冲突，只说明具体关联与影响。
 issues 仅列本轮新发现的问题。card.blockers 中未被提出解决的问题会由系统自动保留，不得重复或改写后再次放入 issues；仅当已有问题与本轮话题直接相关时，才在 summary 说明仍需谁补充什么。已有问题没有新结论时保留原问题即可，不要制造同义问题。
 summary、issues、reason 和 resolution 面向业务人员，用字段中文名称，如“权限规则”“依赖约束”；permission、constraint 等英文键只出现在 JSON 结构中，引用原文不得改写。

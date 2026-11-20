@@ -86,7 +86,7 @@ function sameRule(left: SupportedEdit, right: SupportedEdit, leftClaims: Set<str
   }));
 }
 
-function presentGroup(edits: SupportedEdit[], draft: boolean) {
+function presentGroup(edits: SupportedEdit[], pendingStatus?: '待采纳' | '待业务确认') {
   const primary = edits[0];
   const concrete = primary.current.filter(part => !hasUnresolvedContent(part));
   const match = phrases(primary.quotes.map(quote => quote.text));
@@ -95,7 +95,7 @@ function presentGroup(edits: SupportedEdit[], draft: boolean) {
   return {
     id: primary.field,
     title: fieldLabels[primary.field],
-    status: draft ? '待采纳' : edits.every(edit => edit.adopted) ? '已采纳' : '已保存',
+    status: pendingStatus ?? (edits.every(edit => edit.adopted) ? '已采纳' : '已保存'),
     previous: primary.previous.slice(0, 2),
     current: current.flatMap(part => part.split(/，(?=待[^，。；]{1,12}期间)/u)).slice(0, 3),
     fields: FIELDS.flatMap(([key, label]) => {
@@ -137,5 +137,6 @@ export function presentDemoChanges(card: Card) {
     if (group) group.push(edit);
     else groups.push([edit]);
   }
-  return {id: update.id, draft: update.draft, groups: groups.map(edits => presentGroup(edits, update.draft))};
+  const pendingStatus = update.draft ? suggestion?.reviewRole==='business' ? '待业务确认' : '待采纳' : undefined;
+  return {id: update.id, draft: update.draft, groups: groups.map(edits => presentGroup(edits, pendingStatus))};
 }

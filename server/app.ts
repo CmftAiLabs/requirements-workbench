@@ -232,7 +232,7 @@ export async function buildApp(){
    void discussion.enqueue(id,action.cardId).catch(()=>console.error('自动整理未能排队，已保存讨论消息。'));
    return reply.code(204).send();
   }
-  const changesDemo=['adoptConclusion','applySuggestion','editCard','scope','updateOverview','saveIntake'].includes(action.type);
+  const changesDemo=['confirmProductSuggestion','adoptConclusion','applySuggestion','editCard','scope','updateOverview','saveIntake'].includes(action.type);
   const result=await mutateProject(params(req).id,p=>{applyAction(p,action as Action,roleOf(req),participantOf(req).id);if(changesDemo)reconcileDemo(p);},stamp);
   if(action.type==='message')await discussion.enqueue(result.project.id,action.cardId).catch(()=>console.error('自动整理未能排队，已保存讨论消息。'));
   if(changesDemo&&(result.project.generatedDemo||action.type==='saveIntake'&&action.importSelected))await demos.enqueue(result.project.id,'cardId' in action?action.cardId:undefined).catch(()=>console.error('Demo 更新排队失败'));

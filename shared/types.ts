@@ -37,7 +37,7 @@ export interface Blocker {id:string;field:FieldKey;reason:string;resolved:boolea
 export interface FieldChange {field:FieldKey;before:string;after:string;reason:string;evidence:Evidence[]}
 export interface ChangeDependency {field:FieldKey;requires:FieldKey[];reason:string}
 export interface ProblemResolution {scopeReview?:{basis:string};blockerId:string;resolution:string;evidence:Evidence[];requiredFields:FieldKey[];requiredRoles:('business'|'pm'|'reviewer')[]}
-export interface Suggestion {processedAt?:string;origin?:'model'|'example';id:string;baseRevision:number;messageCount:number;summary:string;issues:string[];changes:FieldChange[];dependencies?:ChangeDependency[];problemResolutions?:ProblemResolution[];createdAt:string;status:'待决定'|'已写入'|'已失效';decisions?:Partial<Record<FieldKey,'采纳'|'不采纳'>>;overrides?:Partial<Record<FieldKey,string>>}
+export interface Suggestion {reviewRole?:'business';processedBy?:'pm'|'business';processedAt?:string;origin?:'model'|'example';id:string;baseRevision:number;messageCount:number;summary:string;issues:string[];changes:FieldChange[];dependencies?:ChangeDependency[];problemResolutions?:ProblemResolution[];createdAt:string;status:'待决定'|'已写入'|'已失效';decisions?:Partial<Record<FieldKey,'采纳'|'不采纳'>>;overrides?:Partial<Record<FieldKey,string>>}
 export interface CardRevision {revision:number;fields:Fields;reason:string;createdAt:string}
 export interface Card {aiOrigins?:Partial<Record<FieldKey,AIFieldOrigin>>;assessments?:import('./expert-discussion').RequirementAssessment[];messageCount?:number;messageVersion?:string;historyCount?:number;followUps?:FollowUp[];assistantCursor?:string;organization?:CardOrganization;id:string;title:string;type:'功能要求';revision:number;round:number;fields:Fields;sources:string[];provenance:Record<FieldKey,Evidence[]>;included:boolean;exclusionReason:string;assessment:'需评估'|'待澄清'|'可确认';issues:string[];messages:Message[];suggestion?:Suggestion;blockers:Blocker[];approvals:Partial<Record<'pm'|'business',Confirmation>>;confirmations:Confirmation[];history:CardRevision[];granularity?:Granularity;parentId?:string;intakeDraftId?:string;coverageGaps?:string[]}
 export interface Snapshot {cardCount?:number;deferred?:boolean;id:string;version:string;phase:Phase;createdAt:string;cards:Card[];excluded:{id:string;title:string;reason:string}[];materials:Material[];markdown:string;reviewComment?:string}
@@ -58,6 +58,7 @@ export type Action =
  | {type:'renameModule';from:string;to:string}
  | {type:'applyModuleGrouping';proposalId:string}
  | {type:'organizeCard';cardId:string;organization:CardOrganization}
+ | {type:'confirmProductSuggestion';cardId:string;suggestionId:string}
  | {type:'adoptConclusion';cardId:string;suggestionId:string;decisions:Partial<Record<FieldKey,'采纳'|'不采纳'>>;overrides?:Partial<Record<FieldKey,string>>;resolvedBlockerIds?:string[]}
  | {type:'updateOverview';cardId:string;title:string;fields:Fields;coverageGaps:string[];reason:string}
  | {type:'saveIntake';batchId:string;revision:number;drafts:{id:string;aiReviews?:IntakeAIReviews;organization?:CardOrganization;title:string;fields:Fields;selected:boolean;exclusionReason:string;coverageGaps:string[]}[];importSelected:boolean}

@@ -1,6 +1,7 @@
 import {isBusinessOwner,isQuestionRecipient,personFor,type ParticipantId} from './participants';
 import {cardStatus,type Card,type Project,type Role} from './types.ts';
 import {pendingAttachmentMessages} from './chat-attachments';
+import {readInterfaceTitleChange} from './interface-title';
 
 export const roleNames:Record<Role,string>={pm:'产品经理',business:'业务负责人',reviewer:'历史参与者'};
 export const latestHumanMessage=(card:Card)=>card.messages.filter(m=>m.role!=='agent').at(-1);
@@ -8,6 +9,7 @@ export const waitingQuestion=(card:Card)=>card.included&&card.granularity!=='概
 export const unansweredQuestion=(card:Card)=>waitingQuestion(card)||(card.included&&card.granularity!=='概要'?card.followUps?.find(q=>q.status==='deferred'&&q.baseRevision===card.revision):undefined);
 export const isAgentRequest=(text:string)=>/@\s*(?:agent|助手|需求助手|需求伙伴)|更新.*(?:演示|原型)|(?:请|帮我).*(?:整理|总结|生成)/i.test(text);
 export function isRequirementUpdateRequest(text:string){
+ if(readInterfaceTitleChange(text))return true;
  // Treat a negated instruction as a question/reply, not a request to make a draft.
  // Separate clauses keep “不要改需求，但请更新原型” actionable for the latter clause.
  return text.split(/[，,。；;！!？?\n]|但是|不过|但/).some(clause=>{

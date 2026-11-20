@@ -4,7 +4,7 @@ import path from 'node:path';
 import type {Project} from '../shared/types';
 import type {DemoModule,DemoRevision,DemoCodeProposal,DemoTimings} from '../shared/generated-demo';
 import {prototypeStateSource,prototypePersona,moduleShell} from '../shared/prototype-shell';
-import {demoInput,demoInputKey,demoOverviews,digest} from './demo-schema';
+import {demoInput,demoInputKey,demoOverviews,digest,validateDemoProposal} from './demo-schema';
 import {preferredDemoViewport} from '../shared/demo-viewport';
 import {isNamedModule} from '../shared/card-organization';
 import {artifactDir,buildAndCheck,buildPreview,readDemoSource,readDemoProposal,DemoBindingCheckError} from './demo-builder';
@@ -14,6 +14,8 @@ import {recordMetric} from './metrics';
 import {prepareBusinessContract} from './demo-business-contract';
 import type {DemoBusinessContract} from '../shared/generated-demo';
 import {businessRuntimeKey,extendBusinessFields,type BusinessFieldAddition} from './demo-business-fields';
+import {recordedInterfaceTitles} from '../shared/interface-title';
+import {prototypeTitlePatch} from './demo-title-patch';
 
 export function planDemoModules(p:Project,previous:DemoModule[]=[],businessContract?:DemoBusinessContract,isolateChanges=false){
  const effective=new Map(demoInput(p).cards.map(c=>[c.id,c]));
@@ -71,7 +73,18 @@ export async function buildModularDemo(p:Project,prior:DemoRevision|undefined,op
   if(options.previewFirst&&old)try{context.previousProposal=await readDemoProposal(p.id,old.artifactId);}catch{}
   // A legacy single-module application can be migrated without discarding its source.
   if(!old&&prior&&!prior.modules&&plans.length===1)files=await readDemoSource(p.id,prior).catch(()=>({}));
+  const reusableSource=old&&digest(files)===old.sourceHash;
   files={...files,'src/prototype-state.ts':prototypeStateSource,...businessContract?{'src/prototype-business.ts':businessContract.source}:{}};let failure:string|undefined=previousFailure,candidate:Awaited<ReturnType<typeof generateDemoCode>>|undefined;
+  if(old&&reusableSource&&context.previousProposal&&!failure&&generate===generateDemoCode
+    && demoInput(scoped).cards.some(card=>recordedInterfaceTitles(card.fields.flow).length)){
+   try{
+    const previous=JSON.parse(await readFile(path.join(artifactDir(p.id,old.artifactId),'verification-context.json'),'utf8')) as {project:Project;common:unknown[]};
+    if(digest(previous.common)===digest(plan.common)){
+     const patch=prototypeTitlePatch(scoped,previous.project,files,context.previousProposal);
+     if(patch)candidate=validateDemoProposal(patch,scoped,files,true);
+    }
+   }catch{/* Older artifacts can still go through the regular generation path. */}
+  }
   const mt:DemoTimings={...blankTimings(),modelCalls:0,validationRepairs:0},moduleStart=performance.now();let attempts=0,bindingRepaired=false;
   context.onRepair=()=>{mt.validationRepairs!++;};
   while(attempts<3||candidate){

@@ -52,8 +52,15 @@ test('沟通群在采纳和确认按钮处标出当前负责人，处理完成�
    field:'flow',before:c.fields.flow,after:c.fields.flow+' 成功后显示申请编号。',reason:'方便查询',
    evidence:[{messageId:message.id,quote:message.text}],
   }]},c.revision,c.messages.length);
-  assert.deepEqual(renderMentions(p,proposer),['@林舟']);
-  applyAction(p,{type:'adoptConclusion',cardId:c.id,suggestionId:c.suggestion!.id,decisions:{flow:'采纳'}},'pm','pm');
+  assert.deepEqual(renderMentions(p,proposer),[proposer==='pm'?'@陈敏':'@林舟']);
+  if(proposer==='pm'){
+   assert.deepEqual(renderMentions(p,'business'),['@陈敏']);
+   applyAction(p,{type:'confirmProductSuggestion',cardId:c.id,suggestionId:c.suggestion!.id},'business','business');
+   assert.deepEqual(renderMentions(p,'pm'),['@林舟']);
+   applyAction(p,{type:'pmConfirm',cardId:c.id},'pm','pm');
+  }else{
+   applyAction(p,{type:'adoptConclusion',cardId:c.id,suggestionId:c.suggestion!.id,decisions:{flow:'采纳'}},'pm','pm');
+  }
   assert.deepEqual(renderMentions(p,'pm'),['@陈敏']);
   assert.deepEqual(renderMentions(p,'business-operations'),['@陈敏']);
   assert.deepEqual(renderMentions(p,'business'),['@陈敏']);

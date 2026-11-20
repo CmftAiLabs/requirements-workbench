@@ -6,6 +6,7 @@ import {cardStatus,type Card,type Project} from './types';
 
 export const reminderLabels = {
   reply: '待回复',
+  clarify: '待澄清',
   adopt: '待采纳',
   startConfirmation: '待发起确认',
   confirm: '待确认',
@@ -40,8 +41,12 @@ export function cardReminders(project: ReminderProject, card: Card): AssignedRem
   const product = {project,card,role:'pm',participantId:'pm'} as const;
   const suggestion = liveSuggestion(card);
   if (suggestion) {
-    if (recipient?.id !== 'pm' && !getChatDisabledReason('applySuggestion',product)) {
-      reminders.push({...base,kind:'adopt',participantId:'pm',anchorId:`suggestion-${suggestion.id}`,
+    const owner = suggestion.reviewRole === 'business'
+      ? {...product,role:'business' as const,participantId:'business' as const} : product;
+    const operation = owner.role === 'business' ? 'confirmProductSuggestion' : 'applySuggestion';
+    if (recipient?.id !== owner.participantId && !getChatDisabledReason(operation,owner)) {
+      const kind = owner.role === 'business' ? 'confirm' : suggestion.changes.length || suggestion.problemResolutions?.length ? 'adopt' : 'clarify';
+      reminders.push({...base,kind,participantId:owner.participantId,anchorId:`suggestion-${suggestion.id}`,
         detail:suggestion.summary.slice(0,180),createdAt:suggestion.createdAt});
     }
     return reminders;

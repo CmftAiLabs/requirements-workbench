@@ -396,9 +396,14 @@ export function attachSuggestion(project: Project, cardId: string, draft: Sugges
   const issues = (draft.issues || []).map(issue => text(issue, '未明确事项'));
   const dependencies = validateDependencies(draft.dependencies, changes);
   const problemResolutions = validateProblemResolutions(project, card, draft.problemResolutions, changes, issues);
-  card.suggestion = {id: id('suggestion'), baseRevision, messageCount, summary: text(draft.summary, '讨论总结'), issues, changes, dependencies, problemResolutions, createdAt: now(), status: '待决定'};
+  const proposer = card.messages.findLast(message => message.role !== 'agent');
+  const productProposal = proposer?.role === 'pm' && proposer.kind !== 'change' && !proposer.replyTo
+    && changes.length > 0 && !issues.length && !problemResolutions.length
+    && changes.every(change => change.evidence.some(ref => ref.messageId === proposer.id));
+  card.suggestion = {id: id('suggestion'), baseRevision, messageCount, summary: text(draft.summary, '讨论总结'), issues, changes, dependencies, problemResolutions,
+    ...(productProposal ? {reviewRole: 'business' as const} : {}), createdAt: now(), status: '待决定'};
   if(completeNoopSuggestion(card))audit(project,'记录讨论总结','system',`${card.title}：没有需要采纳的变更，保留原需求与人工确认。`);
-  else audit(project, '形成字段建议', 'system', `${card.title}：${changes.length} 个字段变化，${problemResolutions.length} 项问题解决建议，等待产品决定`);
+  else audit(project, '形成字段建议', 'system', `${card.title}：${changes.length} 个字段变化，${problemResolutions.length} 项问题解决建议，等待${productProposal?'业务负责人确认':'产品决定'}`);
 }
 
 export function applyAction(project: Project, action: Action, role: Role, participantId?:ParticipantId): void {
@@ -540,11 +545,15 @@ function applyParticipantAction(project: Project, action: Action, role: Role, pa
       }
       break;
     }
-    case 'applySuggestion': {
-      requireRole(role, ['pm']);
+    case 'applySuggestion':
+    case 'confirmProductSuggestion': {
+      const businessDecision = action.type === 'confirmProductSuggestion';
+      requireRole(role, [businessDecision ? 'business' : 'pm']);
       const suggestion = card.suggestion;
       if (!suggestion || suggestion.id !== action.suggestionId || suggestion.status !== '待决定' || suggestion.baseRevision !== card.revision || suggestion.messageCount !== card.messages.length) throw new Error('这份建议已过期，请根据最新讨论重新生成');
-      const decisions = action.decisions;
+      const decisions = businessDecision
+        ? Object.fromEntries(suggestion.changes.map(change => [change.field, '采纳' as const]))
+        : action.decisions;
       if (!decisions || typeof decisions !== 'object' || Array.isArray(decisions)) throw new Error('请提交所有变化字段的审核选择');
       for (const key of Object.keys(decisions)) {
         validField(key);
@@ -554,7 +563,7 @@ function applyParticipantAction(project: Project, action: Action, role: Role, pa
       const accepted = suggestion.changes.filter(change => decisions[change.field] === '采纳');
       const rejected = suggestion.changes.filter(change => decisions[change.field] === '不采纳');
       const overrides: Partial<Record<FieldKey, string>> = {};
-      if (action.overrides !== undefined) {
+      if (!businessDecision && action.overrides !== undefined) {
         if (!action.overrides || typeof action.overrides !== 'object' || Array.isArray(action.overrides)) throw new Error('人工调整内容必须按字段提交');
         for (const [key, value] of Object.entries(action.overrides)) {
           validField(key);
@@ -566,7 +575,7 @@ function applyParticipantAction(project: Project, action: Action, role: Role, pa
       }
       validateDependencies(suggestion.dependencies, suggestion.changes);
       const review = getSuggestionReview(card, decisions, overrides);
-      const selectedIds = action.resolvedBlockerIds ?? [];
+      const selectedIds = (businessDecision ? undefined : action.resolvedBlockerIds) ?? [];
       if (!Array.isArray(selectedIds) || selectedIds.some(value => typeof value !== 'string' || !value.trim()) || new Set(selectedIds).size !== selectedIds.length) throw new Error('请选择有效且不重复的问题');
       const selectedCandidates = selectedIds.map(blockerId => {
         const candidate = suggestion.problemResolutions?.find(item => item.blockerId === blockerId);
@@ -592,7 +601,8 @@ function applyParticipantAction(project: Project, action: Action, role: Role, pa
       suggestion.decisions = clone(decisions);
       suggestion.overrides = clone(overrides);
       const adjustmentDetail = adjustedFields.length ? `；人工调整${adjustedFields.map(key => FIELDS.find(([field]) => field === key)![1]).join('、')}` : '';
-      if (writeRevision(project, card, fields, card.title, `产品经理审核 Agent 建议${adjustmentDetail}`)) {
+      const revisionReason = businessDecision ? '业务负责人确认产品变更' : `产品经理审核 Agent 建议${adjustmentDetail}`;
+      if (writeRevision(project, card, fields, card.title, revisionReason)) {
         for (const change of accepted) {
           if (review.changedFields.includes(change.field)) {
             card.provenance[change.field] = adjustedFields.includes(change.field) ? [] : clone(change.evidence);
@@ -614,6 +624,7 @@ function applyParticipantAction(project: Project, action: Action, role: Role, pa
       }
       if (resolutions.length) refreshAssessment(card);
       suggestion.status = '已写入';
+      suggestion.processedBy = businessDecision ? 'business' : 'pm';
       suggestion.processedAt = now();
       audit(project, '决定字段建议', role, `${card.title}：采纳 ${accepted.length} 项，保留 ${rejected.length} 项，解决 ${resolutions.length} 个问题${adjustmentDetail}${resolutions.length ? `：${resolutions.map(item => item.resolution).join('；')}` : ''}`);
       break;

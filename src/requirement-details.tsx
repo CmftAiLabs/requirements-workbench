@@ -105,7 +105,7 @@ export function RequirementDetails({
             onClick={() => showField(key)}>{label}</button>)}</div>
         </div>}
         {suggestion && <button type="button" className="rd-link rd-follow-action" onClick={() => onDiscuss(`suggestion-${suggestion.id}`)}>
-          @{personFor('pm').name} 查看待采纳建议
+          @{personFor(suggestion.reviewRole || 'pm').name} {suggestion.reviewRole==='business'?'查看待确认变更':suggestion.changes.length||suggestion.problemResolutions?.length?'查看待采纳建议':'查看待澄清事项'}
         </button>}
         {needsNewSuggestion && <p className="rd-empty">建议已过期，请按最新讨论重新整理。</p>}
         {changes.length > 0 && <div className="rd-changes">

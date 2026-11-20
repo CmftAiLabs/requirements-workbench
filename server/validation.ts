@@ -11,6 +11,7 @@ export const actionSchema=z.discriminatedUnion('type',[
  z.object({type:z.literal('renameModule'),from:moduleNameSchema,to:moduleNameSchema}).strict(),
  z.object({type:z.literal('applyModuleGrouping'),proposalId:id}).strict(),
  z.object({type:z.literal('organizeCard'),cardId:id,organization:organizationSchema}).strict(),
+ z.object({type:z.literal('confirmProductSuggestion'),cardId:id,suggestionId:id}).strict(),
  z.object({type:z.literal('adoptConclusion'),cardId:id,suggestionId:id,decisions:z.partialRecord(field,z.enum(['采纳','不采纳'])),overrides:z.partialRecord(field,z.string().trim().min(1).max(6000)).optional(),resolvedBlockerIds:z.array(id).max(100).refine(ids=>new Set(ids).size===ids.length,'同一问题不能重复选择').optional()}).strict(),
  z.object({type:z.literal('updateOverview'),cardId:id,title:z.string().trim().min(1).max(120),fields,coverageGaps:z.array(z.string().trim().min(1).max(5000)).max(100),reason}).strict(),
  z.object({type:z.literal('saveIntake'),batchId:id,revision:z.number().int().positive(),drafts:z.array(z.object({id,aiReviews:intakeAIReviewsSchema.optional(),organization:organizationSchema.optional(),title:z.string().trim().min(1).max(120),fields,selected:z.boolean(),exclusionReason:z.string().trim().max(5000),coverageGaps:z.array(z.string().trim().min(1).max(5000)).max(100)}).strict()).min(1).max(100).refine(items=>new Set(items.map(item=>item.id)).size===items.length,'同一草稿不能重复提交'),importSelected:z.boolean()}).strict(),

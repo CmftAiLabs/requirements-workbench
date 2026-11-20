@@ -106,17 +106,29 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
  const resolved=c&&s?(s.problemResolutions||[]).filter(r=>!resolutionDisabledReason(c,r,decisions,selectedOverrides)).map(r=>r.blockerId):[];
  const presentation=s?conclusionPresentation(s):{actionable:false,issues:[]};
  const remainingIssues=presentation.issues;
+ const productProposal=s?.reviewRole==='business';
+ const clarificationOnly=!!s?.issues.length&&!s.changes.length&&!s.problemResolutions?.length;
+ const reviewOperation=productProposal?'confirmProductSuggestion':'applySuggestion';
  const plan=c&&s?getSuggestionReview(c,decisions,selectedOverrides):undefined;
  const ready=!!plan&&!Object.values(plan.fields).some(unknown)&&activeBlockers.every(b=>resolved.includes(b.id))&&!s?.issues.length&&!plan.dependencyProblems.length;
  const keepOriginal=!!s?.changes.length&&!plan?.changedFields.length&&!resolved.length;
- const adoptionLabel=keepOriginal?'保留原需求':ready?'采纳并发起确认':'采纳本轮结论';
+ const adoptionLabel=productProposal?'确认本轮变更':clarificationOnly?'标记已读':keepOriginal?'保留原需求':ready?'采纳并发起确认':'采纳本轮结论';
  const pins=new Set(pinnedChats(p,participantId).map(card=>card.id));
  const pending=concreteCards(p).filter(card=>needsAttention(p,card)).sort((a,b)=>Number(pins.has(b.id))-Number(pins.has(a.id)));
  const next=pending.find(card=>card.id!==c?.id);
- const startAgent=async()=>{if(!c||policy('suggest'))return;setHint('');if(pendingAttachmentMessages(c).length)await resumeDiscussion(c.id);else if(s)await generateDemo(c.id);else await suggest(c.id);};
+ const startAgent=async()=>{if(!c||policy('suggest'))return;setHint('');if(pendingAttachmentMessages(c).length)await resumeDiscussion(c.id);else if(s?.changes.length)await generateDemo(c.id);else await suggest(c.id);};
  const send=async()=>{if(!c||!text.trim()||policy('discuss')||sending.current||composing.current)return;const value=text.trim(),at=context.current,id=c.id;sending.current=true;try{const key=JSON.stringify([at,c.revision,c.round,value,replyTo]);if(pendingMessage.current?.key!==key)pendingMessage.current={key,id:crypto.randomUUID()};const okay=await mutate({type:'message',cardId:id,text:value,baseRevision:c.revision,baseRound:c.round,clientMessageId:pendingMessage.current.id,...(replyTo?{replyTo}:{})},p.stamp,'消息已发送');if(okay){pendingMessage.current=undefined;clearDraft();}}finally{sending.current=false;}};
  const draft=(value:string)=>{setText(value);input.current?.focus();};
- const adopt=async()=>{if(!c||!s||!presentation.actionable||policy('applySuggestion'))return;const action:Action={type:'adoptConclusion',cardId:c.id,suggestionId:s.id,decisions,overrides:selectedOverrides,resolvedBlockerIds:resolved};if(await mutate(action,p.stamp,keepOriginal?'已保留原需求，已有确认与阶段不变':ready?'结论已采纳，请业务负责人确认本轮需求':'结论已采纳，尚未明确的事项继续沟通'))setAdjust(false);};
+ const adopt=async()=>{
+  if(!c||!s||!presentation.actionable||policy(reviewOperation))return;
+  if(productProposal){
+   await mutate({type:'confirmProductSuggestion',cardId:c.id,suggestionId:s.id},p.stamp,'业务负责人已确认本轮变更');
+   return;
+  }
+  const action:Action={type:clarificationOnly?'applySuggestion':'adoptConclusion',cardId:c.id,suggestionId:s.id,decisions,overrides:selectedOverrides,resolvedBlockerIds:resolved};
+  const success=clarificationOnly?'已读待澄清事项':keepOriginal?'已保留原需求，已有确认与阶段不变':ready?'结论已采纳，请业务负责人确认本轮需求':'结论已采纳，尚未明确的事项继续沟通';
+  if(await mutate(action,p.stamp,success))setAdjust(false);
+ };
  const startResize=(event:React.PointerEvent<HTMLDivElement>)=>{const rect=workspace.current?.getBoundingClientRect();if(!rect)return;event.preventDefault();const left=workspace.current?.querySelector('.co-pool')?.getBoundingClientRect().width||218;const move=(e:PointerEvent)=>setRatio(Math.max(38,Math.min(68,(e.clientX-rect.left-left)/(rect.width-left)*100)));const end=()=>{window.removeEventListener('pointermove',move);window.removeEventListener('pointerup',end);};resizeCleanup.current=end;window.addEventListener('pointermove',move);window.addEventListener('pointerup',end);};
  const waiting=c?waitingQuestion(c):undefined;
  useEffect(()=>{if(replyTo&&replyTo!==waiting?.id&&!c?.followUps?.some(q=>q.id===replyTo&&(q.status==='deferred'&&q.baseRevision===c.revision||q.status==='answered')))setReplyTo('');},[waiting?.id,replyTo,c?.followUps,c?.revision]);
@@ -152,15 +164,15 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
   {s&&!running&&<article className="co-message agent"><span className="co-avatar agent"><Sparkles size={17} aria-hidden="true"/></span><div className="co-message-content"><div className="co-message-meta"><strong>需求助手</strong><span>Agent</span><time>{time(s.createdAt)}</time></div><div className="co-conclusion" id={`suggestion-${s.id}`} tabIndex={-1} data-reminder-anchor>
   <div className="co-conclusion-heading">
    <Sparkles size={14} aria-hidden="true"/>
-   <strong>{s.origin==='example'?'参考结论':presentation.actionable?'本轮建议':'本轮回应'}</strong>
-   {presentation.actionable&&<span id={actionRecipientId} className="co-action-owner"><ActionMention role="pm"/> 待采纳</span>}
+   <strong>{s.origin==='example'?'参考结论':clarificationOnly?'待澄清事项':productProposal?'产品变更提案':presentation.actionable?'本轮建议':'本轮回应'}</strong>
+   {presentation.actionable&&<span id={actionRecipientId} className="co-action-owner"><ActionMention role={productProposal?'business':'pm'}/> {productProposal?'待确认':clarificationOnly?'待跟进':'待采纳'}</span>}
   </div>
   <p className="co-conclusion-summary">{presentation.actionable||remainingIssues.length?summaryPreview(s.summary):s.summary}</p>
   {(presentation.actionable||remainingIssues.length>0)&&<details className="co-conclusion-details" key={`${c.id}:${s.id}`}><summary><ChevronRight size={12}/><span className="co-details-show">查看修改详情</span><span className="co-details-hide">收起修改详情</span><small>{[s.changes.length?`${s.changes.length} 项字段`:'',remainingIssues.length?`${remainingIssues.length} 项待核对`:''].filter(Boolean).join(' · ')}</small></summary><div className="co-conclusion-detail-body"><section className="co-conclusion-full-summary"><h3>完整总结</h3><p>{s.summary}</p></section>{s.changes.length>0&&<div className="co-changes">{s.changes.map(change=><div key={change.field}><span>{FIELDS.find(([key])=>key===change.field)?.[1]}</span><p>{change.after}</p></div>)}</div>}{remainingIssues.length>0&&<section className="co-conclusion-issues"><h3>待核对事项</h3><ul>{remainingIssues.map(issue=><li key={issue}>{issue}</li>)}</ul></section>}</div></details>}
   {(!!plan?.changedFields.length||resolved.length>0)&&(passed(c,'pm')||passed(c,'business')||p.phase!=='可讨论')?<p className="co-impact">采纳后，本卡已有确认失效，需要重新确认{p.phase!=='可讨论'?`；项目由“${p.phase}”回到“可讨论”`:''}。其他卡片的确认保留。</p>:null}
   {presentation.actionable&&<div className="co-conclusion-actions">
-   <button className="primary" aria-describedby={actionRecipientId} disabled={!!policy('applySuggestion')} title={policy('applySuggestion')} onClick={()=>void adopt()}><Check size={14}/>{adoptionLabel}</button>
-   <button aria-describedby={actionRecipientId} disabled={busy||role!=='pm'} title={role!=='pm'?'由产品经理调整；其他成员可直接在群里补充意见':''} onClick={()=>setAdjust(true)}><SlidersHorizontal size={13}/>调整</button>
+   <button className="primary" aria-describedby={actionRecipientId} disabled={!!policy(reviewOperation)} title={policy(reviewOperation)} onClick={()=>void adopt()}><Check size={14}/>{adoptionLabel}</button>
+   {!productProposal&&!clarificationOnly&&<button aria-describedby={actionRecipientId} disabled={busy||role!=='pm'} title={role!=='pm'?'由产品经理调整；其他成员可直接在群里补充意见':''} onClick={()=>setAdjust(true)}><SlidersHorizontal size={13}/>调整</button>}
   </div>}</div></div></article>}
   {!s&&c.suggestion?.status==='已失效'&&!running&&<div className="co-inline-note">讨论已有补充，上一轮建议已失效。<button disabled={!!policy('suggest')} onClick={()=>void startAgent()}>按最新讨论更新原型</button></div>}
   {!s&&!running&&!waiting&&c.included&&c.granularity!=='概要'&&(confirmed||passed(c,'pm')||cardStatus(c)==='可确认')&&
@@ -187,7 +199,7 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
   {c&&<IdleClarification projectId={p.id} card={c} enabled={modelConfigured&&c.included&&c.granularity!=='概要'&&!confirmed&&!presentation.actionable&&!busy&&!details&&!adjust} typing={!!text.trim()||!!replyTo} waiting={!!waiting} running={running} onDiscuss={draft}/>}
   {confirmed&&next&&<button className="co-next" onClick={()=>setCard(next.id)}>下一项：{next.title}<ArrowRight size={14}/></button>}{!pending.length&&concreteCards(p).some(c=>c.included)&&<button className="co-next" onClick={onManage}>本期需求均已确认，查看 PRD 与整体评审<ArrowRight size={14}/></button>}
   </>:<div className="co-empty-state"><div className="co-empty-symbol"><MessageCircle size={26}/><Sparkles size={17}/></div><h2>从一项需求，开始共创</h2><p>上传资料，整理出需要沟通的需求。<br/>在群里讨论，核对原型，一起确认。</p><button className="primary" onClick={()=>goMaterials()}>前往材料箱<ArrowRight size={14}/></button></div>}</div>
-  {c&&<ChatComposer files={files} setFiles={setFiles} clearDraft={clearDraft} modelPicker={modelPicker} assistantAvailable={modelConfigured} key={`${p.id}:${c.id}:${participantId}`} text={text} setText={setText} inputRef={input} hint={hint} disabledReason={policy('discuss')} attachmentReason={attachmentDisabledReason(p,c)} reply={replyTo?c.followUps?.find(q=>q.id===replyTo)?.question:undefined} clearReply={()=>setReplyTo('')} sendText={send} sendMaterials={async data=>{if(replyTo)data.set('replyTo',replyTo);return sendMaterials(c.id,data);}} quickActions={<><button type="button" disabled={!!policy('suggest')} title={policy('suggest')} onClick={()=>void startAgent()}><Sparkles size={13}/>{running?'正在分析':s?'更新原型':'整理讨论'}</button>{!s&&!passed(c,'pm')&&role==='pm'&&<button type="button" onClick={()=>draft('@Agent 请按大家已经明确的业务和产品意见更新需求与原型，联动检查权限、流程和验收，并整理可以解决的问题。')}>按讨论形成结论<ArrowRight size={11}/></button>}</>}/>}
+  {c&&<ChatComposer files={files} setFiles={setFiles} clearDraft={clearDraft} modelPicker={modelPicker} assistantAvailable={modelConfigured} key={`${p.id}:${c.id}:${participantId}`} text={text} setText={setText} inputRef={input} hint={hint} disabledReason={policy('discuss')} attachmentReason={attachmentDisabledReason(p,c)} reply={replyTo?c.followUps?.find(q=>q.id===replyTo)?.question:undefined} clearReply={()=>setReplyTo('')} sendText={send} sendMaterials={async data=>{if(replyTo)data.set('replyTo',replyTo);return sendMaterials(c.id,data);}} quickActions={<><button type="button" disabled={!!policy('suggest')} title={policy('suggest')} onClick={()=>void startAgent()}><Sparkles size={13}/>{running?'正在分析':s?.changes.length?'更新原型':'整理讨论'}</button>{!s&&!passed(c,'pm')&&role==='pm'&&<button type="button" onClick={()=>draft('@Agent 请按大家已经明确的业务和产品意见更新需求与原型，联动检查权限、流程和验收，并整理可以解决的问题。')}>按讨论形成结论<ArrowRight size={11}/></button>}</>}/>}
   </section><div className="co-resizer" role="separator" aria-label="调整聊天与原型宽度" aria-orientation="vertical" aria-valuenow={ratio} tabIndex={0} onPointerDown={startResize} onKeyDown={e=>{if(e.key==='ArrowLeft'){e.preventDefault();setRatio(n=>Math.max(38,n-3));}if(e.key==='ArrowRight'){e.preventDefault();setRatio(n=>Math.min(68,n+3));}}}/><section className={`co-preview${expanded?' is-expanded':''}`}><WorkspaceModal title="效果预览" wide modal={expanded} onClose={()=>setExpanded(false)}><div className="co-preview-expanded">{preview}</div></WorkspaceModal></section>
   {organizing&&c&&<WorkspaceModal title="调整沟通安排" onClose={()=>setOrganizing(false)}><p className="co-dialog-lead">{c.title}</p><OrganizationFields value={organization} modules={organizationModules(p)} disabled={role!=='pm'||busy} onChange={setOrganization}/><p className="organization-footnote">只调整模块和沟通顺序，正文、已有确认和项目阶段保持。</p>{p.stamp!==organizationStamp&&<p className="error-text">项目已有更新，请关闭后重新打开。</p>}<div className="modal-actions"><button onClick={()=>setOrganizing(false)}>取消</button><button className="primary" disabled={role!=='pm'||busy||!organization.module.trim()||!organization.reason.trim()||p.stamp!==organizationStamp} onClick={async()=>{if(await mutate({type:'organizeCard',cardId:c.id,organization},organizationStamp,'沟通安排已更新，原有需求确认保留'))setOrganizing(false);}}>保存安排</button></div></WorkspaceModal>}
   {details&&c&&progress&&<RequirementDetails key={`${p.id}:${c.id}`} card={c} project={p} role={role} busy={busy}

@@ -23,7 +23,7 @@ export function requirementProgress(card: Card, agentRunning = false) {
   let step: string = status;
   if (concrete && status === '可确认') {
     if (agentRunning) step = '助手整理中';
-    else if (suggestion) step = '待产品采纳';
+    else if (suggestion) step = suggestion.reviewRole === 'business' ? '待业务确认变更' : suggestion.changes.length || suggestion.problemResolutions?.length ? '待产品采纳' : '待澄清';
     else if (needsNewSuggestion) step = '待重新整理';
     else step = productConfirmed ? '待业务确认' : '待发起确认';
   } else if (card.included && card.granularity === '概要') {
