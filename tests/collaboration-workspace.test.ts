@@ -10,6 +10,7 @@ import {buildDemoHTML} from '../shared/project-demo.ts';
 import {cardStatus,type SuggestionDraft,type Project} from '../shared/types.ts';
 import {participantById,type ParticipantId} from '../shared/participants';
 import {discussionReplayProject} from './fixtures/discussion-replay';
+import {requirementProgress} from '../src/requirement-progress';
 function proposed(){
  const p=createCRMExperience(),c=p.cards[0];
  const evidence=c.messages.filter(m=>m.role==='business'||m.role==='reviewer').map(m=>({messageId:m.id,quote:m.text}));
@@ -59,6 +60,41 @@ test('沟通群在采纳和确认按钮处标出当前负责人，处理完成�
   applyAction(p,{type:'businessConfirm',cardId:c.id,result:'通过',comment:''},'business','business');
   assert.deepEqual(renderMentions(p,'business'),[]);
  }
+});
+
+test('待明确入口只列当前问题，并随人工确认更新进度', () => {
+ const {p,c}=discussionReplayProject();
+ const createdAt=new Date().toISOString();
+ c.blockers=[
+  {id:'remaining',field:'scope',reason:'确定参会人范围',resolved:false,createdAt},
+  {id:'resolved',field:'flow',reason:'已明确的操作',resolved:true,createdAt},
+ ];
+ c.fields.quality='加载时限待明确';
+ c.fields.permission='员工可查看待确认状态的申领单';
+ const question={id:'pending',field:'scope' as const,question:'访客可以报名吗？',options:[],
+  role:'business' as const,participantId:'business-operations' as const,createdAt,baseRevision:c.revision,
+  sourceMessageId:'message',status:'waiting' as const};
+ c.followUps=[question,{...question,id:'answered',status:'answered'},{...question,id:'historical',baseRevision:c.revision-1}];
+ const pending=requirementProgress(c);
+ assert.equal(pending.step,'待澄清');
+ assert.deepEqual(pending.gaps.map(([key])=>key),['quality']);
+ assert.deepEqual(pending.blockers.map(item=>item.id),['remaining']);
+ assert.deepEqual(pending.questions.map(item=>item.id),['pending']);
+
+ c.blockers[0].resolved=true;
+ c.followUps[0].status='answered';
+ c.fields.quality='表单加载不超过两秒。';
+ assert.equal(requirementProgress(c).step,'待发起确认');
+ applyAction(p,{type:'pmConfirm',cardId:c.id},'pm','pm');
+ assert.equal(requirementProgress(p.cards[0]).step,'待业务确认');
+ applyAction(p,{type:'businessConfirm',cardId:c.id,result:'通过',comment:''},'business','business');
+ assert.equal(requirementProgress(p.cards[0]).step,'已确认');
+ assert.equal(requirementProgress(p.cards[0]).pending,false);
+ applyAction(p,{type:'proposeChange',cardId:c.id,text:'增加访客报名入口。'},'business','business');
+ const changed=requirementProgress(p.cards[0]);
+ assert.equal(changed.step,'已确认');
+ assert.equal(changed.pending,true);
+ assert.equal(changed.changes.length,1);
 });
 
 test('不完整采纳只保存结论，不越过问题或九字段门槛',()=>{

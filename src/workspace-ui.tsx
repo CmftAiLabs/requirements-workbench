@@ -16,8 +16,11 @@ export function WorkspaceModal({title, children, onClose, wide = false, classNam
     const before = opener.current;
     const dialog = root.current;
     if (dialog && !dialog.contains(document.activeElement)) {
-      const input = dialog.querySelector<HTMLElement>('input:not(:disabled):not([type="file"]),textarea:not(:disabled),select:not(:disabled)');
-      (input || dialog).focus();
+      const input = Array.from(dialog.querySelectorAll<HTMLElement>(
+        'input:not(:disabled):not([type="file"]):not([type="hidden"]),textarea:not(:disabled),select:not(:disabled)',
+      )).find(item => item.getClientRects().length > 0 && !item.closest('details:not([open])'));
+      input?.focus();
+      if (!dialog.contains(document.activeElement)) dialog.focus();
     }
     const onKey = (event: KeyboardEvent) => {
       const dialogs = document.querySelectorAll('[role="dialog"]');

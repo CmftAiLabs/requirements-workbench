@@ -1,4 +1,3 @@
-import {AIOrigin} from './intake-ai-field';
 import {useConversationDraft} from './conversation-drafts';
 import {IdleClarification} from './idle-clarification';
 import {conclusionPresentation} from '../shared/conclusion-presentation';
@@ -7,13 +6,12 @@ import {attachmentDisabledReason,pendingAttachmentMessages} from '../shared/chat
 import {hasUnresolvedContent} from '../shared/requirement-clarity';
 import {PARTICIPANTS,isQuestionRecipient,personFor,type ParticipantId} from '../shared/participants';
 import {ConversationThread} from './conversation-thread';
-import {CardHistory} from './card-history';
 import {DemoPreview,type DemoLocation} from './demo-preview';
 import {waitingQuestion,waitingLabel} from '../shared/discussion';
 import type {DiscussionReminder} from '../shared/discussion-reminders';
 import {useEffect,useId,useRef,useState,type CSSProperties,type ReactNode} from 'react';
-import {ArrowDown,ArrowLeft,ArrowRight,Check,CheckCheck,CheckCircle2,Crosshair,ChevronDown,ChevronRight,FileText,FolderOpen,Info,Layers3,LoaderCircle,Maximize2,MessageCircle,MoreHorizontal,PanelLeftClose,PanelLeftOpen,Play,RotateCcw,Search,Send,SlidersHorizontal,Sparkles,Users,X} from 'lucide-react';
-import {FIELDS,ROLES,cardStatus,type Action,type Card,type FieldKey,type Fields,type Job,type Project,type Role} from '../shared/types';
+import {ArrowDown,ArrowLeft,ArrowRight,Check,CheckCheck,CheckCircle2,ChevronDown,ChevronRight,FileText,FolderOpen,Info,Layers3,ListChecks,LoaderCircle,Maximize2,MessageCircle,MoreHorizontal,PanelLeftClose,PanelLeftOpen,Play,RotateCcw,Search,Send,SlidersHorizontal,Sparkles,Users,X} from 'lucide-react';
+import {FIELDS,ROLES,cardStatus,type Action,type Card,type FieldKey,type Job,type Project,type Role} from '../shared/types';
 import {getChatDisabledReason,type ChatOperation} from '../shared/chat-policy';
 import {resolutionDisabledReason} from '../shared/resolution-policy';
 import {getSuggestionReview} from '../shared/suggestion-review';
@@ -21,6 +19,8 @@ import {liveSuggestion,previewFields} from '../shared/crm-demo';
 import {concreteCards} from '../shared/intake-policy';
 import {WorkspaceModal} from './workspace-ui';
 import {RequirementPool} from './requirement-pool';
+import {RequirementDetails} from './requirement-details';
+import {requirementProgress} from './requirement-progress';
 import {OrganizationFields,PriorityBadge} from './organization-fields';
 import {needsAttention,organizationOf,organizationModules,pinnedChats,poolGroupingMode,isNamedModule} from '../shared/card-organization';
 
@@ -46,7 +46,7 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
  const actionRecipientId=useId();
  const {value:conversationDraft,setText,setReplyTo,setFiles,clear:clearDraft}=useConversationDraft(`${p.id}:${c?.id}:${participantId}`);
  const {text,replyTo,files}=conversationDraft;
- const [details,setDetails]=useState(false),[expanded,setExpanded]=useState(false),[collapsed,setCollapsed]=useState(false),[mobilePool,setMobilePool]=useState(false),[mobile,setMobile]=useState<'chat'|'preview'>('chat'),[reload,setReload]=useState(0),[ratio,setRatio]=useState(55),[adjust,setAdjust]=useState(false),[decisions,setDecisions]=useState<Partial<Record<FieldKey,'采纳'|'不采纳'>>>({}),[overrides,setOverrides]=useState<Partial<Record<FieldKey,string>>>({}),[reject,setReject]=useState(false),[reasonText,setReasonText]=useState(''),[hint,setHint]=useState(''),[edit,setEdit]=useState(false),[editFields,setEditFields]=useState<Fields|null>(null),[editReason,setEditReason]=useState(''),[editStamp,setEditStamp]=useState(0),[editGaps,setEditGaps]=useState('');
+ const [details,setDetails]=useState(false),[expanded,setExpanded]=useState(false),[collapsed,setCollapsed]=useState(false),[mobilePool,setMobilePool]=useState(false),[mobile,setMobile]=useState<'chat'|'preview'>('chat'),[reload,setReload]=useState(0),[ratio,setRatio]=useState(55),[adjust,setAdjust]=useState(false),[decisions,setDecisions]=useState<Partial<Record<FieldKey,'采纳'|'不采纳'>>>({}),[overrides,setOverrides]=useState<Partial<Record<FieldKey,string>>>({}),[reject,setReject]=useState(false),[reasonText,setReasonText]=useState(''),[hint,setHint]=useState('');
  const [demoLocation,setDemoLocation]=useState<DemoLocation>();
  const pendingNavigation=useRef<{cardId:string;text?:string;details?:boolean}|undefined>(undefined);
  const [organizing,setOrganizing]=useState(false),[organization,setOrganization]=useState(organizationOf(c||{})),[organizationStamp,setOrganizationStamp]=useState(p.stamp);
@@ -54,7 +54,7 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
  const pendingMessage=useRef<{key:string;id:string}|undefined>(undefined);
  const context=useRef('');context.current=`${p.id}:${c?.id}:${participantId}`;
  const s=c?liveSuggestion(c):undefined;
- useEffect(()=>{const next=pendingNavigation.current?.cardId===c?.id?pendingNavigation.current:undefined;if(next?.text)setText(next.text);setHint('');setDetails(!!next?.details);setDemoLocation(undefined);setAdjust(false);setReject(false);setEdit(false);setReload(0);setOrganizing(false);pendingNavigation.current=undefined;if(next?.text)input.current?.focus();},[p.id,c?.id]);
+ useEffect(()=>{const next=pendingNavigation.current?.cardId===c?.id?pendingNavigation.current:undefined;if(next?.text)setText(next.text);setHint('');setDetails(!!next?.details);setDemoLocation(undefined);setAdjust(false);setReject(false);setReload(0);setOrganizing(false);pendingNavigation.current=undefined;if(next?.text)input.current?.focus();},[p.id,c?.id]);
  useEffect(()=>{setDecisions(s?Object.fromEntries(s.changes.map(change=>[change.field,'采纳'])):{});setOverrides({});setAdjust(false);},[c?.id,s?.id]);
  useEffect(()=>{
   const el=stream.current;
@@ -65,8 +65,11 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
   setMobile('chat');
   setMobilePool(false);
   setExpanded(false);
+  return focusDiscussion(reminderFocus.anchorId);
+ },[reminderFocus,p.id,c?.id]);
+ function focusDiscussion(anchorId:string){
   const frame=requestAnimationFrame(()=>{
-   const target=document.getElementById(reminderFocus.anchorId);
+   const target=document.getElementById(anchorId);
    if(target&&stream.current?.contains(target)){
     target.focus({preventScroll:true});
     target.scrollIntoView({block:'nearest',behavior:'instant'});
@@ -75,7 +78,7 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
    }
   });
   return ()=>cancelAnimationFrame(frame);
- },[reminderFocus,p.id,c?.id]);
+ }
  useEffect(()=>()=>resizeCleanup.current(),[]);
  useEffect(()=>{const query=window.matchMedia('(max-width:650px)');const closeWide=()=>{if(!query.matches)setMobilePool(false);};query.addEventListener('change',closeWide);return()=>query.removeEventListener('change',closeWide);},[]);
  useEffect(()=>{
@@ -91,6 +94,7 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
   document.addEventListener('keydown',key);return()=>{document.removeEventListener('keydown',key);mobilePoolToggle.current?.focus();};
  },[mobilePool]);
  const running=!!c&&jobs.some(j=>['suggest','listen'].includes(j.kind)&&j.cardId===c.id&&['running','queued'].includes(j.status));
+ const progress=c?requirementProgress(c,running):undefined;
  const latestJob=jobs.find(j=>['suggest','listen'].includes(j.kind)&&j.cardId===c?.id);
  const policy=(op:ChatOperation)=>c?getChatDisabledReason(op,{project:p,card:c,role,participantId,busy,agentRunning:running,modelConfigured}):'请先选择需求';
  const editDisabled=c?.granularity==='概要'?(busy?'正在保存，请稍候':role!=='pm'?'仅产品经理可修改':p.deliveries.some(d=>!d.completedAt)?'当前文档已冻结交付':''):policy('editCard');
@@ -120,7 +124,26 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
  return <div className={`co-workspace ${collapsed?'pool-collapsed':''} ${mobilePool?'mobile-pool-open':''}`} ref={workspace} style={{'--chat-ratio':`${ratio}fr`,'--preview-ratio':`${100-ratio}fr`} as CSSProperties} data-mobile={mobile}>
   {mobilePool&&<button type="button" className="co-pool-backdrop" aria-label="关闭需求列表" tabIndex={-1} onClick={()=>setMobilePool(false)}/>}
   <RequirementPool mobileOpen={mobilePool} key={p.id} project={p} role={role} participantId={participantId} busy={busy} jobs={jobs} modelConfigured={modelConfigured} mutate={mutate} organize={organize} selectedId={c?.id} select={id=>{setCard(id);setMobilePool(false);}} collapsed={collapsed} toggle={()=>{if(window.matchMedia('(max-width:650px)').matches)setMobilePool(false);else setCollapsed(!collapsed);}} goMaterials={()=>goMaterials()}/>
-  <section className="co-chat"><header className="co-chat-header"><div><div className="co-chat-eyebrow">沟通群 {c?.granularity==='概要'?<><ChevronRight size={11}/>整体范围</>:c&&poolGroupingMode(p)==='modules'&&isNamedModule(organizationOf(c).module)?<><ChevronRight size={11}/>{organizationOf(c).module}</>:null}</div><h1 tabIndex={-1}>{c?.title||'一起把需求说清楚'}</h1>{c&&<button className="co-organization-trigger" aria-label="调整模块与沟通优先级" disabled={role!=='pm'||busy} title={role!=='pm'?'仅产品经理可调整模块和沟通优先级':organizationOf(c).reason} onClick={()=>{setOrganization({...organizationOf(c)});setOrganizationStamp(p.stamp);setOrganizing(true);}}><PriorityBadge value={organizationOf(c).priority}/><span>{role==='pm'?'调整安排':'产品安排'}</span><ChevronDown size={10}/></button>}</div><div className="co-header-people"><div className="co-avatars">{PARTICIPANTS.map(person=><i key={person.id} title={`${person.name} · ${person.title}`} aria-label={`${person.name} · ${person.title}`}>{person.initial}</i>)}<i title="需求助手" aria-label="需求助手"><Sparkles size={14} aria-hidden="true"/></i></div>{c&&<button aria-label="查看需求详情" title="查看需求详情" onClick={()=>setDetails(true)}><MoreHorizontal size={20}/></button>}</div></header><div className="co-mobile-switch"><button type="button" className="co-mobile-pool-toggle" ref={mobilePoolToggle} aria-expanded={mobilePool} aria-controls={`requirement-pool-${p.id}`} onClick={()=>{setCollapsed(false);setMobilePool(true);}}><PanelLeftOpen size={16}/>需求</button><button className={mobile==='chat'?'active':''} onClick={()=>setMobile('chat')}>沟通</button><button className={mobile==='preview'?'active':''} onClick={()=>setMobile('preview')}>原型预览</button></div>
+  <section className="co-chat">
+   <header className="co-chat-header">
+    <div>
+     <div className="co-chat-eyebrow">沟通群 {c?.granularity==='概要'?<><ChevronRight size={11}/>整体范围</>:c&&poolGroupingMode(p)==='modules'&&isNamedModule(organizationOf(c).module)?<><ChevronRight size={11}/>{organizationOf(c).module}</>:null}</div>
+     <h1 tabIndex={-1}>{c?.title||'一起把需求说清楚'}</h1>
+     {c&&progress&&<div className="co-chat-card-actions">
+      <button type="button" className="co-chat-progress" aria-haspopup="dialog" title={progress.step} data-pending={progress.pending} onClick={()=>setDetails(true)}>
+       <ListChecks size={13} aria-hidden="true"/>待明确事项
+      </button>
+      <button className="co-organization-trigger" aria-label="调整模块与沟通优先级" disabled={role!=='pm'||busy} title={role!=='pm'?'仅产品经理可调整模块和沟通优先级':organizationOf(c).reason} onClick={()=>{setOrganization({...organizationOf(c)});setOrganizationStamp(p.stamp);setOrganizing(true);}}>
+       <PriorityBadge value={organizationOf(c).priority}/><span>{role==='pm'?'调整安排':'产品安排'}</span><ChevronDown size={10}/>
+      </button>
+     </div>}
+    </div>
+    <div className="co-header-people">
+     <div className="co-avatars">{PARTICIPANTS.map(person=><i key={person.id} title={`${person.name} · ${person.title}`} aria-label={`${person.name} · ${person.title}`}>{person.initial}</i>)}<i title="需求助手" aria-label="需求助手"><Sparkles size={14} aria-hidden="true"/></i></div>
+     {c&&<button aria-label="查看需求详情" aria-haspopup="dialog" title="查看需求详情" onClick={()=>setDetails(true)}><MoreHorizontal size={20}/></button>}
+    </div>
+   </header>
+   <div className="co-mobile-switch"><button type="button" className="co-mobile-pool-toggle" ref={mobilePoolToggle} aria-expanded={mobilePool} aria-controls={`requirement-pool-${p.id}`} onClick={()=>{setCollapsed(false);setMobilePool(true);}}><PanelLeftOpen size={16}/>需求</button><button className={mobile==='chat'?'active':''} onClick={()=>setMobile('chat')}>沟通</button><button className={mobile==='preview'?'active':''} onClick={()=>setMobile('preview')}>原型预览</button></div>
   {waiting&&<div className="co-waiting" role="status"><span><strong>{waitingLabel(c!,role,participantId)}</strong> · {waiting.question}</span>{isQuestionRecipient(waiting,role,participantId)&&<button onClick={()=>{setReplyTo(waiting.id);input.current?.focus();}}>我来补充</button>}</div>}
   <div className="co-messages" ref={stream}>{c?<><div className="co-topic-note"><span><MessageCircle size={13}/>围绕这项需求沟通</span><p>{c.fields.goal}</p>{c.granularity==='概要'&&<button onClick={()=>goMaterials(c.intakeDraftId)}>到材料箱继续细化 <ArrowRight size={12}/></button>}{!c.included&&<p>本期不纳入：{c.exclusionReason}</p>}</div><ConversationThread retryAssessment={assessmentId=>void resumeDiscussion(c.id,assessmentId)} assessmentBusy={running||!modelConfigured} scrollRef={stream} project={p} openDraft={goMaterials} openCard={setCard} card={c} role={role} participantId={participantId} busy={busy} onAnswer={(question,value)=>{setReplyTo(question.id);draft(value);}}/>{!c.messages.length&&<div className="co-quiet"><Sparkles size={21}/><h3>从一个具体问题开始</h3><p>说说业务场景、不确定的规则，或直接 @Agent。</p></div>}
   {running&&!c.assessments?.some(a=>a.jobId===latestJob?.id&&a.status==='running')&&<article className="co-message agent"><span className="co-avatar agent"><Sparkles size={17} aria-hidden="true"/></span><div className="co-message-content"><div className="co-message-meta"><strong>需求助手</strong><span>Agent</span></div><div className="co-agent-working"><LoaderCircle className="spin" size={15}/><span>{latestJob?.label||'正在分析本轮讨论'}<small>新卡和修改建议都由人核对，你可以继续发言。</small></span></div></div></article>}
@@ -166,7 +189,10 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
   {c&&<ChatComposer files={files} setFiles={setFiles} clearDraft={clearDraft} modelPicker={modelPicker} assistantAvailable={modelConfigured} key={`${p.id}:${c.id}:${participantId}`} text={text} setText={setText} inputRef={input} hint={hint} disabledReason={policy('discuss')} attachmentReason={attachmentDisabledReason(p,c)} reply={replyTo?c.followUps?.find(q=>q.id===replyTo)?.question:undefined} clearReply={()=>setReplyTo('')} sendText={send} sendMaterials={async data=>{if(replyTo)data.set('replyTo',replyTo);return sendMaterials(c.id,data);}} quickActions={<><button type="button" disabled={!!policy('suggest')} title={policy('suggest')} onClick={()=>void startAgent()}><Sparkles size={13}/>{running?'正在分析':s?'更新原型':'整理讨论'}</button>{!s&&!passed(c,'pm')&&role==='pm'&&<button type="button" onClick={()=>draft('@Agent 请按大家已经明确的业务和产品意见更新需求与原型，联动检查权限、流程和验收，并整理可以解决的问题。')}>按讨论形成结论<ArrowRight size={11}/></button>}</>}/>}
   </section><div className="co-resizer" role="separator" aria-label="调整聊天与原型宽度" aria-orientation="vertical" aria-valuenow={ratio} tabIndex={0} onPointerDown={startResize} onKeyDown={e=>{if(e.key==='ArrowLeft'){e.preventDefault();setRatio(n=>Math.max(38,n-3));}if(e.key==='ArrowRight'){e.preventDefault();setRatio(n=>Math.min(68,n+3));}}}/><section className={`co-preview${expanded?' is-expanded':''}`}><WorkspaceModal title="效果预览" wide modal={expanded} onClose={()=>setExpanded(false)}><div className="co-preview-expanded">{preview}</div></WorkspaceModal></section>
   {organizing&&c&&<WorkspaceModal title="调整沟通安排" onClose={()=>setOrganizing(false)}><p className="co-dialog-lead">{c.title}</p><OrganizationFields value={organization} modules={organizationModules(p)} disabled={role!=='pm'||busy} onChange={setOrganization}/><p className="organization-footnote">只调整模块和沟通顺序，正文、已有确认和项目阶段保持。</p>{p.stamp!==organizationStamp&&<p className="error-text">项目已有更新，请关闭后重新打开。</p>}<div className="modal-actions"><button onClick={()=>setOrganizing(false)}>取消</button><button className="primary" disabled={role!=='pm'||busy||!organization.module.trim()||!organization.reason.trim()||p.stamp!==organizationStamp} onClick={async()=>{if(await mutate({type:'organizeCard',cardId:c.id,organization},organizationStamp,'沟通安排已更新，原有需求确认保留'))setOrganizing(false);}}>保存安排</button></div></WorkspaceModal>}
-  {details&&c&&<WorkspaceModal title={c.title} wide onClose={()=>{setDetails(false);setEdit(false);}}><div className="co-detail-top"><span>{cardStatus(c)} · 修订 {c.revision}</span>{role==='pm'&&<button className="small" disabled={!!editDisabled} title={editDisabled} onClick={()=>{setEdit(!edit);setEditFields({...c.fields});setEditReason('');setEditStamp(p.stamp);setEditGaps((c.coverageGaps||[]).join('\n'));}}> {edit?'取消编辑':'编辑需求'}</button>}</div><div className="co-detail-fields">{FIELDS.map(([key,label])=><section key={key}><h3>{label}{!edit&&c.included&&c.granularity!=='概要'&&<button className="co-field-locate" aria-label={`在原型中定位${label}`} onClick={()=>{setDetails(false);locateDemo(key);}}><Crosshair size={12}/></button>}</h3>{edit?<textarea aria-label={label} value={editFields?.[key]||''} maxLength={12000} onChange={e=>setEditFields({...editFields!,[key]:e.target.value})}/>:<p>{c.fields[key]||'待明确'}</p>}{!edit&&<AIOrigin card={c} field={key}/>}</section>)}</div>{edit&&<>{p.stamp!==editStamp&&<div className="co-inline-note">需求已有更新，请取消编辑后重新载入最新内容。</div>}{c.granularity==='概要'&&<label>尚待细化的范围<textarea value={editGaps} onChange={e=>setEditGaps(e.target.value)} placeholder="每行一项尚待细化内容"/></label>}<label>修改说明<textarea value={editReason} onChange={e=>setEditReason(e.target.value)} placeholder="说明为什么修改"/></label><p className="co-impact">{c.granularity==='概要'?'修改概要业务字段后，相关具体卡需重新核对；项目回到可讨论，历史版本保留。':'修改正文后，本卡需重新确认，项目回到可讨论；历史版本保留。'}</p><button className="primary" disabled={!!editDisabled||!editReason.trim()||p.stamp!==editStamp} title={editDisabled} onClick={async()=>{if(editFields&&await mutate(c.granularity==='概要'?{type:'updateOverview',cardId:c.id,fields:editFields,title:c.title,coverageGaps:editGaps.split('\n').map(v=>v.trim()).filter(Boolean),reason:editReason}:{type:'editCard',cardId:c.id,fields:editFields,title:c.title,reason:editReason},editStamp))setEdit(false);}}>保存修改</button></>}<CardHistory project={p} card={c}/>{activeBlockers.length>0&&<details className="co-detail-sources"><summary>卡片待明确事项 · {activeBlockers.length}</summary>{activeBlockers.map(b=><p key={b.id}>{b.reason}</p>)}</details>}{c.messages.filter(m=>m.kind==='change'&&!m.accepted).map(m=><div className="co-inline-note" key={m.id}><p>尚未纳入的变更：{m.text}</p><p>纳入后本卡的确认失效，项目回到可讨论。</p><button disabled={!!policy('acceptChange')} title={policy('acceptChange')} onClick={()=>void mutate({type:'acceptChange',cardId:c.id,messageId:m.id,field:'scope'},p.stamp)}>纳入本轮沟通</button></div>)}<details className="co-detail-sources"><summary>本期范围</summary><p>{c.included?'当前纳入本期':c.exclusionReason}</p><label>调整理由<input value={reasonText} onChange={e=>setReasonText(e.target.value)} placeholder="说明纳入或排除的理由"/></label><p>调整范围会要求本卡重新确认，项目回到可讨论。</p><button disabled={busy||role!=='pm'||!reasonText.trim()} onClick={async()=>{if(await mutate({type:'scope',cardId:c.id,included:!c.included,reason:reasonText},p.stamp)){setReasonText('');setDetails(false);}}}>{c.included?'移出本期':'纳入本期'}</button></details></WorkspaceModal>}
+  {details&&c&&progress&&<RequirementDetails key={`${p.id}:${c.id}`} card={c} project={p} role={role} busy={busy}
+   progress={progress} editDisabled={editDisabled} changeDisabled={policy('acceptChange')} mutate={mutate}
+   onClose={()=>setDetails(false)} onLocate={field=>{setDetails(false);locateDemo(field);}}
+   onDiscuss={anchor=>{setDetails(false);setExpanded(false);setMobile('chat');focusDiscussion(anchor);}}/>}
   {adjust&&c&&s&&presentation.actionable&&<WorkspaceModal title="调整本轮结论" wide onClose={cancelAdjust}><p className="co-dialog-lead">建议默认选中，只需调整不同意的部分。这里的修改将在采纳后生效。</p>{s.changes.map(change=><div className="co-adjust-row" key={change.field}><label><input type="checkbox" checked={decisions[change.field]==='采纳'} onChange={e=>setDecisions({...decisions,[change.field]:e.target.checked?'采纳':'不采纳'})}/>{FIELDS.find(([key])=>key===change.field)?.[1]}</label><textarea aria-label={`调整${FIELDS.find(([key])=>key===change.field)?.[1]}`} disabled={decisions[change.field]!=='采纳'} value={overrides[change.field]??change.after} maxLength={6000} onChange={e=>setOverrides({...overrides,[change.field]:e.target.value})}/><details><summary>原文与依据</summary><p>{change.before}</p>{change.evidence.map((ref,i)=><blockquote key={i}>{ref.quote}</blockquote>)}</details></div>)}<p className="co-impact">{keepOriginal?'本轮修改不采用，正式需求、已有确认和阶段保持。原型会按保留的需求重新同步。':'采纳后保存需求与 PRD；原型按最终采纳内容更新，生成期间保留上一版并标明状态。涉及本卡正文变更时，已有确认失效；依赖未采纳内容的问题会保留。'}</p><div className="modal-actions"><button onClick={cancelAdjust}>取消调整</button><button className="primary" disabled={!!policy('applySuggestion')||s.changes.some(change=>decisions[change.field]==='采纳'&&overrides[change.field]!==undefined&&!overrides[change.field]!.trim())} onClick={()=>void adopt()}>{adoptionLabel}</button></div></WorkspaceModal>}
   {reject&&c&&<WorkspaceModal title="告诉大家还需要调整什么" onClose={()=>setReject(false)}><textarea autoFocus aria-label="调整意见" value={reasonText} onChange={e=>setReasonText(e.target.value)} placeholder="例如：原负责人撤权后，通知摘要仍要能查看。" rows={5}/><p className="co-impact">提交后，本卡的当前确认失效，回到待沟通；项目回到可讨论，其他卡片的确认保留。</p><div className="modal-actions"><button onClick={()=>setReject(false)}>取消</button><button className="primary" disabled={!!policy('businessReject')||!reasonText.trim()} onClick={async()=>{if(await mutate({type:'businessConfirm',cardId:c.id,result:'要求修改',comment:reasonText},p.stamp,'意见已记录，本卡需要重新沟通'))setReject(false);}}>提交调整意见</button></div></WorkspaceModal>}
  </div>;

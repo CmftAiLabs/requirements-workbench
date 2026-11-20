@@ -1,0 +1,248 @@
+.co-chat-card-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.co-chat-header .co-chat-card-actions .co-organization-trigger {
+  margin: 0;
+}
+
+.co-chat-header .co-chat-progress {
+  gap: 5px;
+  padding: 2px 8px;
+  min-height: 24px;
+  white-space: nowrap;
+  font-size: var(--font-size-meta);
+  color: var(--brand-primary);
+  border-color: var(--border-base);
+}
+
+.co-chat-header .co-chat-progress[data-pending="true"] {
+  background: var(--brand-tint);
+  border-color: var(--brand-border);
+}
+
+.workspace-modal.modal.requirement-details-modal {
+  padding: 0;
+  overflow: hidden;
+}
+
+.workspace-modal.modal.requirement-details-modal > header {
+  margin: 0;
+}
+
+.requirement-details-modal > .modal-body {
+  display: flex;
+  padding: 0;
+  overflow: hidden;
+  scrollbar-gutter: auto;
+}
+
+.rd-layout {
+  display: grid;
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  grid-template: minmax(0, 1fr) / minmax(230px, 1fr) minmax(0, 2.1fr);
+}
+
+.rd-pending,
+.rd-card {
+  min-width: 0;
+  padding: 18px 22px;
+  overflow: auto;
+  scrollbar-width: thin;
+  overscroll-behavior: contain;
+}
+
+.rd-pending {
+  background: #f6f9fe;
+  border-right: 1px solid var(--border-base);
+}
+
+.rd-layout h3,
+.rd-layout h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--font-size-control);
+  font-weight: 600;
+}
+
+.rd-layout h4 {
+  color: var(--text-secondary);
+  font-size: var(--font-size-meta);
+}
+
+.rd-progress,
+.rd-card-heading,
+.rd-item-meta,
+.rd-field h4 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rd-progress {
+  margin: 9px 0 12px;
+}
+
+.rd-step {
+  border-radius: 5px;
+  padding: 2px 7px;
+  background: #e6effc;
+  color: var(--brand-primary);
+  font-size: var(--font-size-meta);
+  font-weight: 600;
+}
+
+.rd-layout .rd-text,
+.rd-layout .rd-empty {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--font-size-control);
+  line-height: 1.55;
+  white-space: pre-wrap;
+}
+
+.rd-layout .rd-empty,
+.rd-layout .rd-item-meta {
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+}
+
+.rd-layout .rd-link {
+  min-height: 22px;
+  padding: 0 1px;
+  border: 0;
+  background: transparent;
+  color: var(--brand-primary);
+  font-size: var(--font-size-meta);
+}
+
+.rd-list {
+  display: grid;
+  gap: 7px;
+  margin: 8px 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.rd-list > li,
+.rd-change {
+  padding: 8px 10px;
+  border: 1px solid var(--border-base);
+  border-radius: 7px;
+  background: var(--bg-surface);
+}
+
+.rd-item-meta {
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+.rd-field-gaps,
+.rd-changes,
+.rd-follow-action {
+  margin-top: 14px;
+}
+
+.rd-field-gaps > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin-top: 6px;
+}
+
+.rd-layout .rd-chip {
+  min-height: 24px;
+  padding: 2px 7px;
+  border-radius: 5px;
+  background: var(--bg-surface);
+  color: var(--brand-primary);
+  font-size: var(--font-size-meta);
+}
+
+.rd-card-heading {
+  justify-content: space-between;
+  margin-bottom: 6px;
+  min-height: 26px;
+}
+
+.rd-card-heading small {
+  margin-left: 5px;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  font-weight: 400;
+}
+
+.rd-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0 18px;
+}
+
+.rd-field {
+  min-width: 0;
+  padding: 8px 2px 9px;
+  border-bottom: 1px solid var(--border-base);
+}
+
+.rd-field h4 {
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+.rd-field:focus {
+  background: #f1f6fe;
+  outline-offset: -1px;
+}
+
+.rd-change,
+.rd-edit,
+.rd-card .co-detail-sources {
+  margin: 8px 0 0;
+}
+
+.rd-change summary,
+.rd-card .co-detail-sources summary {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: var(--font-size-meta);
+  cursor: pointer;
+}
+
+.rd-edit textarea,
+.rd-field textarea {
+  min-height: 54px;
+  font-size: var(--font-size-control);
+}
+
+@media (max-width: 700px) {
+  .requirement-details-modal > .modal-body {
+    display: block;
+    overflow-y: auto;
+  }
+
+  .rd-layout {
+    display: block;
+  }
+
+  .rd-pending,
+  .rd-card {
+    padding: 14px 16px;
+    overflow: visible;
+  }
+
+  .rd-pending {
+    border-right: 0;
+    border-bottom: 1px solid var(--border-base);
+  }
+}
+
+@media (max-width: 460px) {
+  .rd-fields {
+    grid-template-columns: 1fr;
+  }
+}
