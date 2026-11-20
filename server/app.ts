@@ -15,8 +15,8 @@ import {z,ZodError} from 'zod';
 import {config} from './config.js';
 import {requestAccessError,proxyTokenMatches} from './request-policy';
 import {pool,listProjects,insertProject,getProject,getWorkspaceProject,getPreviewProject,getArtifactProject,appendDiscussion,messagePage,mutateProject,listJobs,newJob,putJob,ConflictError} from './store.js';
-import {createProject,applyAction,attachIntakeBatch,attachIntakeRefinement,attachSuggestion,buildMarkdown,beginDelivery} from './domain.js';
-import {probeModel,extractIntakeRequirements,refineIntakeRequirement,suggestChanges,suggestModuleGrouping} from './ai.js';
+import {createProject,applyAction,attachIntakeRefinement,attachSuggestion,buildMarkdown,beginDelivery} from './domain.js';
+import {probeModel,refineIntakeRequirement,suggestChanges,suggestModuleGrouping} from './ai.js';
 import {concreteChats,groupingBasis} from '../shared/card-organization';
 import {prepareUpload,textMaterial,isImageFile,isArchiveFile,MAX_TEXT} from './materials.js';
 import {expandZip,MAX_ARCHIVE_BYTES} from './archive-materials.js';
@@ -31,6 +31,7 @@ import {getChatDisabledReason} from '../shared/chat-policy.js';
 import {createDemoQueue,reconcileDemo} from './demo-jobs.ts';
 import {demoView,demoArtifactHTML,generatedDemoZip} from './demo-builder.ts';
 import {createDiscussionQueue} from './discussion-jobs.ts';
+import {createIntakeQueue} from './intake-jobs';
 import {appendMaterialMessage} from './chat-messages';
 import {CHAT_MAX_FILES,CHAT_MAX_BYTES,attachmentDisabledReason,pendingAttachmentMessages,conversationMaterials} from '../shared/chat-attachments';
 import {latestHumanMessage} from '../shared/discussion.ts';
@@ -71,7 +72,7 @@ async function readImage(buffer:Buffer){
  else activeImageReads++;
  try{return await recognizeImage(buffer)}finally{const next=imageWaiters.shift();if(next)next();else activeImageReads--}
 }
-async function startMaterialProcessing(projectId:string,material:Material){
+async function startMaterialProcessing(projectId:string,material:Material,onReady?:(id:string)=>void){
  const archive=isArchiveFile(material.name);
  const job=await newJob(projectId,'parse',`${archive?'展开压缩包':'识别图片'}：${material.name}`,material.id);
  job.result={materialId:material.id};
@@ -90,11 +91,12 @@ async function startMaterialProcessing(projectId:string,material:Material){
     await mutateProject(projectId,p=>{
      const target=p.materials.find(item=>item.id===material.id);
      if(!target||target.archiveEntries)throw new ConflictError('压缩包已有展开结果，请刷新材料箱。');
-     target.archiveEntries=report;target.status='已展开';delete target.error;p.materials.push(...children);
+     if(target.intake)for(const child of children)child.intake={...target.intake};
+     target.archiveEntries=report;target.status='已展开';delete target.error;delete target.intake;p.materials.push(...children);
     });
     job.result={materialId:material.id,importedCount:children.length,failedCount:report.filter(entry=>entry.error).length+children.filter(child=>child.error).length};
     for(const child of children.filter(child=>child.status==='处理中')){
-     try{await startMaterialProcessing(projectId,child)}catch(error){await markMaterialFailed(projectId,child.id,error)}
+     try{await startMaterialProcessing(projectId,child,onReady)}catch(error){await markMaterialFailed(projectId,child.id,error)}
     }
    }else{
     const result=await readImage(buffer);
@@ -104,7 +106,7 @@ async function startMaterialProcessing(projectId:string,material:Material){
      target.text=result.text;target.mimeType=result.mimeType;target.status='待整理';delete target.error;
     });
    }
-  }catch(error){await markMaterialFailed(projectId,material.id,error);throw error}
+  }catch(error){await markMaterialFailed(projectId,material.id,error);throw error}finally{onReady?.(projectId)}
  });
 }
 async function markMaterialFailed(projectId:string,materialId:string,error:unknown){
@@ -117,7 +119,9 @@ export async function buildApp(){
  const demos=createDemoQueue({enabled:config.modelConfigured});
  void demos.resume().catch(()=>app.log.warn('原型后台检查恢复未完成'));
  const discussion=createDiscussionQueue({enabled:config.modelConfigured,onSuggested:(id,cardId)=>demos.enqueue(id,cardId)});
- app.addHook('onClose',async()=>{discussion.close();demos.close();});
+ const intake=createIntakeQueue({enabled:()=>config.modelConfigured,error:publicError});
+ void intake.resume().catch(()=>app.log.warn('材料自动分析恢复未完成'));
+ app.addHook('onClose',async()=>{discussion.close();demos.close();intake.close();});
  await app.register(cookie,{secret:config.sessionSecret,hook:'onRequest'});
  await app.register(multipart,{limits:{fileSize:MAX_ARCHIVE_BYTES,files:1,fields:10}});
  app.addHook('onRequest',async(req,reply)=>{
@@ -288,16 +292,27 @@ export async function buildApp(){
  });
  app.post('/api/projects/:id/materials',async req=>{
   requirePM(req);const {id}=params(req);await getProject(id);
-  let material;
-  if(req.isMultipart()){
-   const file=await req.file();if(!file)throw new Error('请选择上传文件');
-   material=await prepareUpload(file.filename,await file.toBuffer());
-  }else{const body=materialRequest.parse(req.body);material=textMaterial(body.name,body.text,body.kind,body.location)}
-  const {project}=await mutateProject(id,p=>{p.materials.push(material)});
-  if(material.status==='处理中'){
-   try{await startMaterialProcessing(id,material)}catch(error){await markMaterialFailed(id,material.id,error);return getProject(id)}
+  const materials:Material[]=[],failures:string[]=[],groupId=randomUUID();let saved=false,total=0;
+  try{
+   if(req.isMultipart()){
+    for await(const part of req.parts({limits:{files:20,fileSize:MAX_ARCHIVE_BYTES,fields:0}})){
+     if(part.type!=='file')continue;
+     const buffer=await part.toBuffer();total+=buffer.length;
+     if(total>50*1024*1024)throw new Error('本次文件合计超过50 MB，请分次上传。');
+     try{materials.push(await prepareUpload(part.filename,buffer))}catch(error){failures.push(`${part.filename}：${publicError(error)}`)}
+    }
+    if(!materials.length)throw new Error(failures.join('；')||'请选择上传文件');
+   }else{const body=materialRequest.parse(req.body);materials.push(textMaterial(body.name,body.text,body.kind,body.location))}
+   for(const material of materials)material.intake={groupId,status:'pending'};
+   await mutateProject(id,p=>{p.materials.push(...materials)});saved=true;
+   for(const material of materials.filter(m=>m.status==='处理中')){
+    try{await startMaterialProcessing(id,material,intake.wake)}catch(error){await markMaterialFailed(id,material.id,error)}
+   }
+   intake.wake(id);
+   return {...await getProject(id),uploadFailures:failures};
+  }finally{
+   if(!saved)await Promise.all(materials.filter(m=>m.filePath).map(m=>rm(path.join(config.dataDir,m.filePath!)).catch(()=>{})));
   }
-  return project;
  });
  app.post('/api/projects/:id/materials/:materialId/retry',async req=>{
   requirePM(req);const {id,materialId}=params(req),p=await getProject(id),material=p.materials.find(item=>item.id===materialId);
@@ -309,7 +324,7 @@ export async function buildApp(){
    if(target.status!=='待解析'||target.archiveEntries)throw new ConflictError('材料正在处理或已有结果，请刷新。');
    target.status='处理中';delete target.error;
   });
-  try{return await startMaterialProcessing(id,material)}catch(error){await markMaterialFailed(id,material.id,error);throw error}
+  try{return await startMaterialProcessing(id,material,intake.wake)}catch(error){await markMaterialFailed(id,material.id,error);intake.wake(id);throw error}
  });
  app.get('/api/projects/:id/materials/:materialId/preview',async(req,reply)=>{
   const {id,materialId}=params(req),m=(await getProject(id)).materials.find(item=>item.id===materialId);
@@ -324,27 +339,8 @@ export async function buildApp(){
   return reply.type('application/octet-stream').send(m.filePath?await readFile(path.join(config.dataDir,m.filePath)):Buffer.from(m.text));
  });
  app.post('/api/projects/:id/extract',async req=>{
-  requirePM(req);if(!config.modelConfigured)throw new Error('服务端尚未配置模型密钥。');
-  const {id}=params(req),{materialIds}=extractionRequest.parse(req.body),p=await getProject(id);
-  if(p.deliveries.some(delivery=>!delivery.completedAt))throw new Error('当前 PRD 已冻结交付，请先完成本次交付后再分析材料。');
-  const selected=materialIds.map(mid=>p.materials.find(m=>m.id===mid));
-  if(selected.some(m=>!m?.text))throw new Error('所选材料尚无可读取正文，请先检查解析结果。');
-  if(selected.some(m=>m!.cardIds.length||p.intakeBatches?.some(batch=>batch.materialIds.includes(m!.id))))throw new Error('所选材料已有整理结果，请打开需求草稿继续核对，避免重复生成。');
-  if(selected.reduce((n,m)=>n+m!.text.length,0)>180000)throw new Error('本次材料超过18万字符，请分批整理。');
-  const job=await newJob(id,'extract',`整理 ${selected.length} 份材料`);
-  job.result={materialIds};
-  return runJob(job,async()=>{
-   const drafts=await extractIntakeRequirements(selected as NonNullable<typeof selected[number]>[],p.cards,async label=>{
-    job.label=`整理 ${selected.length} 份材料 · ${label}`;
-    await putJob(job);
-   });
-   const {result:batch}=await mutateProject(id,current=>{
-    if(materialIds.some(mid=>current.materials.find(m=>m.id===mid)?.cardIds.length||current.intakeBatches?.some(batch=>batch.materialIds.includes(mid))))throw new ConflictError('材料已有整理结果，请刷新需求草稿。');
-    return attachIntakeBatch(current,drafts,materialIds);
-   });
-   job.label=`已整理 ${selected.length} 份材料，生成 ${batch.drafts.length} 张需求草稿`;
-   job.result={materialIds,batchId:batch.id,draftCount:batch.drafts.length};
-  });
+  requirePM(req);const {materialIds}=extractionRequest.parse(req.body);
+  return intake.start(params(req).id,materialIds);
  });
  app.post('/api/projects/:id/refine',async req=>{
   requirePM(req);
@@ -446,6 +442,7 @@ export async function buildApp(){
    await performDelivery(project,result);
    const current=await getProject(id),record=current.deliveries.find(d=>d.id===result.id);
    if(record?.targets.some(t=>t.status!=='成功'))throw new Error('部分目标接收失败，请查看交付记录并重试失败目标。');
+   intake.wake(id);
   });
  });
  app.get('/api/projects/:id/prd',async(req,reply)=>{

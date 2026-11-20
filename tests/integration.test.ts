@@ -685,6 +685,25 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       try{const job=await queue.enqueue(p.id,c.id);await entered;await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'先只解释材料，不生成修改建议。'},'pm','pm'));release();assert.equal((await waitJob(p.id,job!.id)).status,'succeeded');const current=await db.getProject(p.id);assert.equal(calls,2);assert.equal(current.cards[0].messages.filter(m=>m.role==='agent').length,1);assert.equal(current.cards[0].messages.at(-1)?.text,'只解释材料，不生成修改。');assert.equal(current.cards[0].suggestion,undefined);}finally{release();queue.close();}
     });
 
+    await t.test('文字与多文件上传登记自动分析，不要求勾选；未启用模型时保留材料与人工确认边界',async()=>{
+      const p=createProject('自动材料入口');p.materials=[];await db.insertProject(p);
+      const pasted=await request(`/api/projects/${p.id}/materials`,{name:'访谈文字',text:'客户可查询自己的申请。',kind:'其他材料'});
+      assert.equal(pasted.statusCode,200);const text=pasted.json<Project>().materials[0];assert.equal(text.intake?.status,'pending');
+      const boundary='automatic-intake-files',files=[{name:'first.txt',text:'经理只查看本部门申请。'},{name:'second.md',text:'提交失败保留已填写内容。'},{name:'unsupported.exe',text:'unsupported'}];
+      const payload=Buffer.concat([...files.map(f=>Buffer.from(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="${f.name}"\r\nContent-Type: application/octet-stream\r\n\r\n${f.text}\r\n`)),Buffer.from(`--${boundary}--\r\n`)]);
+      const uploaded=await app!.inject({method:'POST',url:`/api/projects/${p.id}/materials`,headers:{host:'127.0.0.1',cookie:cookies.pm,'content-type':`multipart/form-data; boundary=${boundary}`},payload});
+      assert.equal(uploaded.statusCode,200);assert.equal(uploaded.json().uploadFailures.length,1);
+      const saved=await db.getProject(p.id);assert.equal(saved.materials.length,3);assert.equal(saved.materials[1].intake?.groupId,saved.materials[2].intake?.groupId);assert.notEqual(saved.materials[1].intake?.groupId,text.intake?.groupId);
+      assert.equal(saved.cards.length,0);assert.equal(saved.phase,'可讨论');assert.equal((await db.listJobs(p.id)).length,0);
+      const {createIntakeQueue}=await import('../server/intake-jobs');
+      const queue=createIntakeQueue({enabled:()=>true,error:e=>String(e),delayMs:1,analyze:async materials=>materials.map(m=>({key:m.id,title:m.name,granularity:'具体' as const,origin:'材料要求' as const,rationale:'材料明确提出',coverageGaps:[],fields:{goal:m.text,scope:'待明确',flow:'待明确',permission:'待明确',exception:'待明确',data:'待明确',constraint:'待明确',quality:'待明确',acceptance:'待明确'},sourceIds:[m.id],assessment:'待澄清' as const,issues:[],evidence:{goal:[{materialId:m.id,quote:m.text}]}}))});
+      try{
+       queue.wake(p.id);
+       for(let i=0;i<100;i++){if((await db.getProject(p.id)).intakeBatches?.length===2)break;await new Promise(r=>setTimeout(r,10));}
+       const result=await db.getProject(p.id);assert.equal(result.intakeBatches?.length,2);assert.equal(result.intakeBatches![1].drafts.length,2);assert.equal(result.cards.length,0);
+      }finally{queue.close();}
+    });
+
     await t.test('ZIP 后台导入逐文件结果，来源与原包保留；不能重复展开或越权重试', async () => {
       const project=createProject('图片与压缩包验证');project.materials=[];await db.insertProject(project);
       const upload=async(name:string,buffer:Buffer,role:Role='pm')=>{
@@ -701,6 +720,7 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       const persisted=await db.getProject(project.id),archive=persisted.materials.find(m=>m.name==='资料.zip')!,child=persisted.materials.find(m=>m.name==='规则.txt')!,image=persisted.materials.find(m=>m.name==='坏图.png')!;
       assert.equal(archive.status,'已展开');assert.equal(archive.archiveEntries?.length,3);assert.equal(archive.text,'');
       assert.equal(child.text,'原负责人交接后立即撤权');assert.equal(child.sourceArchive?.path,'项目/规则.txt');assert.equal(child.sourceArchive?.id,archive.id);
+      assert.equal(archive.intake,undefined);assert.equal(child.intake?.status,'pending');assert.equal(child.intake?.groupId,image.intake?.groupId);
       assert.ok(archive.archiveEntries?.find(e=>e.path==='程序.exe')?.error);assert.equal(image.status,'待解析');assert.ok(image.error);
       assert.equal(persisted.cards.length,0);assert.equal(persisted.phase,'可讨论');
       assert.equal((await request(`/api/projects/${project.id}/materials/${archive.id}/retry`,{})).statusCode,409);
