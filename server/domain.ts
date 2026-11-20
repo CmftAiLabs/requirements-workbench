@@ -379,7 +379,7 @@ export function completeNoopSuggestion(card:Card):boolean {
   return true;
 }
 
-export function attachSuggestion(project: Project, cardId: string, draft: SuggestionDraft, baseRevision: number, messageCount: number): void {
+export function attachSuggestion(project: Project, cardId: string, draft: SuggestionDraft, baseRevision: number, messageCount: number, sourceMessageId?: string): void {
   const card = cardFor(project, cardId);
   const disabled = getChatDisabledReason('suggest', {project, card, role: 'pm'});
   if (disabled) throw new Error(disabled);
@@ -396,7 +396,7 @@ export function attachSuggestion(project: Project, cardId: string, draft: Sugges
   const issues = (draft.issues || []).map(issue => text(issue, '未明确事项'));
   const dependencies = validateDependencies(draft.dependencies, changes);
   const problemResolutions = validateProblemResolutions(project, card, draft.problemResolutions, changes, issues);
-  const proposer = card.messages.findLast(message => message.role !== 'agent');
+  const proposer = card.messages.findLast(message => message.role !== 'agent' && (!sourceMessageId || message.id === sourceMessageId));
   const productProposal = proposer?.role === 'pm' && proposer.kind !== 'change' && !proposer.replyTo
     && changes.length > 0 && !issues.length && !problemResolutions.length
     && changes.every(change => change.evidence.some(ref => ref.messageId === proposer.id));

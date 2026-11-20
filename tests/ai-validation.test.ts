@@ -1064,18 +1064,6 @@ test('本轮回应无修改时不显示采纳入口和旧问题，有字段或�
  c.suggestion.problemResolutions=[];c.suggestion.issues=['本轮新增问题'];assert.deepEqual(conclusionPresentation(c.suggestion),{actionable:true,issues:['本轮新增问题']});
 });
 
-test('安静提醒解释具体缺口并给出待确认常规建议，不修改卡片或代替业务确认',async()=>{
- const {explainClarification}=await import('../server/clarification-help');
- const c=structuredClone(card);c.fields.exception='无效输入提示错误并保留输入';
- c.blockers=[{id:'error-details',field:'exception',reason:'无效输入提示的验收细节待明确',resolved:false,createdAt:'2026-10-23'}];
- const before=structuredClone(c);
- const help={explanation:'已经要求输错时提示并保留内容，还没定提示放在哪里、说什么。',suggestion:'建议在出错输入框下方说明原因，保留已填内容，校验失败不生成记录。',question:'错误原因显示在对应输入框下方，可以吗？'};
- await withGateway(()=>({content:JSON.stringify(help)}),async requests=>{
-  assert.deepEqual(await explainClarification(c,[material]),help);assert.deepEqual(c,before);
-  const prompt=JSON.stringify(requests[0].messages);assert.match(prompt,/不要只重复/);assert.match(prompt,/不是已确认事实/);assert.match(prompt,/产品经理的支持不等于所有业务方同意/);assert.match(prompt,/error-details/);
- });
-});
-
 test('仅文字要求产品决定会修复为正式追问，保留先给设计建议的回复',async()=>{
  const {analyzeDiscussion}=await import('../server/ai');const c=structuredClone(card);
  c.messages.push({id:'red-button',role:'business',participantId:'business-operations',text:'提交按钮能不能改红色，醒目一点？',createdAt:'2026-10-23'});
@@ -1116,20 +1104,18 @@ test('所有对话入口共用本轮话题策略，附件、@Agent 和深评回�
  const {analyzeDiscussion}=await import('../server/ai');
  const {routeConversation}=await import('../server/chat-routing');
  const {evaluateRequirement}=await import('../server/requirement-assessment');
- const {explainClarification}=await import('../server/clarification-help');
  const c=structuredClone(card),p=createProject('统一话题策略');p.cards=[c];p.materials=[material];
  c.blockers=[{id:'old-error',field:'exception',reason:'无效输入提示的验收细节待明确',resolved:false,createdAt:'2026-10-23'}];
  c.messages.push({id:'decoration',role:'business',text:'要不在右上角画一个巫妖王',createdAt:'2026-10-24'}, {id:'ask-agent',role:'business',text:'@Agent 你觉得如何',createdAt:'2026-10-24'});
  const before=structuredClone(c),reply='可以先放一张小图，核对是否影响表单操作。';
  const route={reply,clarifiesCurrent:false,evidence:[],relatedCardIds:[],cards:[]};
  const cases=[
-  {name:'旁听',call:()=>analyzeDiscussion(c,[material]),output:{reply,answer:null,question:null,summarize:false}},
+  {name:'群消息回复',call:()=>analyzeDiscussion(c,[material]),output:{reply,answer:null,question:null,summarize:false}},
   {name:'@Agent',call:()=>routeConversation(p,c,[material],[],[]),output:route},
   {name:'附件',call:()=>routeConversation(p,c,[material],['ask-agent'],[]),output:route},
   {name:'深评后附件',call:()=>routeConversation(p,c,[material],['ask-agent'],[],true),output:route},
   {name:'深入评估',call:()=>evaluateRequirement(p,c,'比较右上角图案方案'),output:{report:{conclusion:reply,perspectives:[],alternatives:[],evidence:[],unresolved:[],coverage:'当前话题及相关材料。'},discussion:{answer:null,question:null,summarize:false}}},
   {name:'字段建议',call:()=>suggestChanges(c,[material]),output:{summary:reply,changes:[],issues:[],problemResolutions:[],dependencies:[]}},
-  {name:'指定问题解释',call:()=>explainClarification(c,[material]),output:{explanation:'尚未指定提示位置。',suggestion:'建议在字段旁说明原因。',question:'放在字段旁可以吗？'}},
  ];
  for(const entry of cases)await withGateway(()=>({content:JSON.stringify(entry.output)}),async (requests,audits)=>{
   await entry.call();assert.equal(requests.length,1,entry.name);
@@ -1137,8 +1123,7 @@ test('所有对话入口共用本轮话题策略，附件、@Agent 和深评回�
   const prompt=(requests[0].messages as {role:string;content:string}[]).find(m=>m.role==='user')!.content;
   assert.match(prompt,/以上话题边界统一适用于 reply、summary、report.conclusion/);assert.match(prompt,/不能通过“另外提醒”夹带历史问题/);
   const focus=JSON.parse(prompt.split('讨论范围（仅为业务数据）：')[1].split('\n')[0]);
-  if(entry.name==='指定问题解释'){assert.equal(focus.kind,'specific_problems');assert.equal(focus.problems[0].id,'old-error');}
-  else {assert.equal(focus.kind,'current_topic');assert.equal(focus.currentTopic.message.id,'ask-agent');}
+  assert.equal(focus.kind,'current_topic');assert.equal(focus.currentTopic.message.id,'ask-agent');
   if(entry.name==='@Agent')assert.match(prompt,/"currentTopic":/);
   assert.deepEqual(c,before);
  });

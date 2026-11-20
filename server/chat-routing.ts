@@ -9,7 +9,7 @@ import type {DiscussionAnalysis} from '../shared/types';
 import {discussionRoutingRules,handlingSchema} from './expert-policy';
 import type {DiscussionHandling} from '../shared/expert-discussion';
 import {runAnalysis,SafeAIError,validatedEvidence,validateIntakeCandidates} from './ai';
-import {discussionMessages,currentDiscussionTopic} from './discussion-context';
+import {discussionMessages,currentDiscussionTopic,currentAgentTurn} from './discussion-context';
 
 const evidenceSchema=z.object({materialId:z.string().optional(),messageId:z.string().optional(),quote:z.string().trim().min(1).max(2000)}).strict();
 const routeSchema=z.object({
@@ -64,10 +64,12 @@ ${JSON.stringify(context)}`,
 }
 
 /** Store an answer and editable intake drafts, never formal requirements or approvals. */
-export function attachConversationRoute(project:Project,cardId:string,result:ConversationRoute,basis:string,sourceMessageIds:string[],materialIds:string[],warnings:string[],assessmentId?:string){
+export function attachConversationRoute(project:Project,cardId:string,result:ConversationRoute,basis:string,sourceMessageIds:string[],materialIds:string[],warnings:string[],assessmentId?:string,requestId?:string){
  const card=project.cards.find(c=>c.id===cardId);
- if(!card||discussionBasis(project,card)!==basis)return false;
- const last=latestHumanMessage(card);
+ if(!card)return false;
+ const turn=requestId?currentAgentTurn(project,card,requestId):card;
+ if(discussionBasis(project,turn)!==basis)return false;
+ const last=latestHumanMessage(turn);
  if(!last)return false;
  const batch=result.cards.length?attachIntakeBatch(project,result.cards,materialIds):undefined;
  card.messages.push({id:randomUUID(),role:'agent',...(assessmentId?{assessmentId}:{}),text:result.reply,createdAt:new Date().toISOString(),materialReply:{

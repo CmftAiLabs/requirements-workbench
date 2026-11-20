@@ -7,7 +7,9 @@ import {randomUUID} from 'node:crypto';
 import {z} from 'zod';
 import {FIELDS,type Card,type Project,type DiscussionAnalysis} from '../shared/types.ts';
 import {discussionBasis,isRequirementUpdateRequest,latestHumanMessage,waitingQuestion} from '../shared/discussion.ts';
+import {withoutLeadingAgentMention} from '../shared/agent-mention';
 import {handlingSchema} from './expert-policy';
+import {currentAgentTurn} from './discussion-context';
 
 export const discussionSchema=z.object({
  reopenQuestion:z.object({questionId:z.string(),messageId:z.string(),quote:z.string().trim().min(1).max(1500)}).strict().nullable().optional(),
@@ -60,7 +62,7 @@ export function validateDiscussion(raw:unknown,card:Card):DiscussionAnalysis{
   if(!target||!message||target.status==='deferred'&&message.replyTo!==target.id||!message.text.includes(answer.quote)||(target.id===reopening?.id?message.id!==result.reopenQuestion!.messageId:!eligibleQuestionAnswer(card,target,message)))throw new SafeAIError('回答必须来自被询问人员在问题之后的真实发言。');
   const latestEligible=card.messages.filter(m=>eligibleQuestionAnswer(card,target!,m)).at(-1);
   if(target.id!==reopening?.id&&latestEligible?.id!==message.id)throw new SafeAIError('同一回答人已有更新的发言，请结合最新意见判断，不能用旧回答覆盖后续更正。');
-  if(/^(?:不知道|不清楚|待确认|暂不确定|还没确定|(?:暂时|暂|还)?没想好|再看看|再想想)[。！!\s]*$/.test(message.text.replace(/^\s*@\s*(?:agent|需求助手|需求伙伴|助手)\s*/i,'').trim()))result.answer=null;
+  if(/^(?:不知道|不清楚|待确认|暂不确定|还没确定|(?:暂时|暂|还)?没想好|再看看|再想想)[。！!\s]*$/.test(withoutLeadingAgentMention(message.text).trim()))result.answer=null;
  }
  // A topic switch must be explicit and tied to the latest human message.
  if(result.deferQuestion){
@@ -105,10 +107,12 @@ export function validateDiscussion(raw:unknown,card:Card):DiscussionAnalysis{
 }
 
 /** Only conversation metadata changes here: never fields, blockers or approvals. */
-export function attachDiscussion(project:Project,cardId:string,raw:DiscussionAnalysis,basis:string){
+export function attachDiscussion(project:Project,cardId:string,raw:DiscussionAnalysis,basis:string,requestId?:string){
  const card=project.cards.find(c=>c.id===cardId);
- if(!card||discussionBasis(project,card)!==basis)return false;
- const result=validateDiscussion(raw,card),last=latestHumanMessage(card);
+ if(!card)return false;
+ const turn=requestId?currentAgentTurn(project,card,requestId):card;
+ if(discussionBasis(project,turn)!==basis)return false;
+ const result=validateDiscussion(raw,turn),last=latestHumanMessage(turn);
  if(!last)return false;
  if(result.reopenQuestion){
   const q=card.followUps!.find(q=>q.id===result.reopenQuestion!.questionId)!,at=new Date().toISOString();

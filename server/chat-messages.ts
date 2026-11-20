@@ -15,7 +15,7 @@ export function appendMaterialMessage(project:Project,cardId:string,participantI
  const disabled=attachmentDisabledReason(project,card);
  if(disabled)throw new Error(disabled);
  if(!materials.length||materials.length>5)throw new Error('每次请添加1至5份材料。');
- applyAction(project,{type:'message',cardId,text:input.text.trim()||'补充了项目材料，请结合当前讨论分析。',...(input.replyTo?{replyTo:input.replyTo}:{})},person.role,participantId);
+ applyAction(project,{type:'message',cardId,text:input.text.trim()||'补充了项目材料。',...(input.replyTo?{replyTo:input.replyTo}:{})},person.role,participantId);
  project.materials.push(...materials);
  const message=card.messages.at(-1)!;
  message.materialIds=materials.map(m=>m.id);message.clientMessageId=input.clientMessageId;

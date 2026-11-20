@@ -1,4 +1,5 @@
 import type {Card, SuggestionDraft} from './types';
+import {withoutLeadingAgentMention} from './agent-mention';
 
 export interface InterfaceTitleChange {
   before: string;
@@ -10,7 +11,7 @@ const rename = new RegExp(`^(?:(?:建议|请|把|将)\\s*)?(?:(原型页头标�
 const recorded = new RegExp(`页头标题由「(${label})」改为「(${label})」。`, 'gu');
 
 export function readInterfaceTitleChange(text: string): InterfaceTitleChange | undefined {
-  const match = rename.exec(text.trim());
+  const match = rename.exec(withoutLeadingAgentMention(text).trim());
   if (!match) return;
   const [, location, oldText, newText] = match;
   const before = oldText.trim(), after = newText.trim();
@@ -36,7 +37,7 @@ export function interfaceTitleSuggestion(card: Card): SuggestionDraft | undefine
   const page = `${card.title} ${card.organization?.module ?? ''}`;
   const matchingPage = page.includes(change.before) || (change.before.endsWith('首页') && page.includes('首页'));
   const found = recordedInterfaceTitles(card.fields.flow).find(item => item.before === change.before || item.after === change.before);
-  if (!matchingPage && !found && !/^(?:(?:建议|请|把|将)\s*)?(?:原型页头标题|页头标题|页面标题|页头)/u.test(message.text.trim())) return;
+  if (!matchingPage && !found && !/^(?:(?:建议|请|把|将)\s*)?(?:原型页头标题|页头标题|页面标题|页头)/u.test(withoutLeadingAgentMention(message.text).trim())) return;
   if (found?.after === change.after) return {summary: `页头标题已采用「${change.after}」。`, changes: [], issues: []};
 
   const statement = (value: InterfaceTitleChange) => `页头标题由「${value.before}」改为「${value.after}」。`;

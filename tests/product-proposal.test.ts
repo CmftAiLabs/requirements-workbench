@@ -14,7 +14,7 @@ test('产品明确提出页头改名，业务负责人确认后写入本项并�
   applyAction(p, {type: 'addBlocker', cardId: c.id, field: 'permission', reason: '另有名单访问规则待明确。'}, 'pm', 'pm');
   const previous = structuredClone(p);
   const originalFlow = c.fields.flow;
-  applyAction(p, {type: 'message', cardId: c.id, text: '大会首页改成招蛇大会更合适'}, 'pm', 'pm');
+  applyAction(p, {type: 'message', cardId: c.id, text: '@Agent 大会首页改成招蛇大会更合适'}, 'pm', 'pm');
   const draft = interfaceTitleSuggestion(c);
   assert.ok(draft);
   assert.equal(draft.changes[0].after, originalFlow + '\n页头标题由「大会首页」改为「招蛇大会」。');

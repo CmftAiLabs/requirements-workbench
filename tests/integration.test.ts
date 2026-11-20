@@ -278,10 +278,10 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
           await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text,...(replyTo?{replyTo}:{})},role));
           const job=await queue.enqueue(p.id,c.id);assert.ok(job);assert.equal((await waitJob(p.id,job.id)).status,'succeeded');return (await db.getProject(p.id)).cards[0];
         };
-        let card=await turn('想加购买平台按钮','business');const id=waitingQuestion(card)!.id;
+        let card=await turn('@Agent 想加购买平台按钮','business');const id=waitingQuestion(card)!.id;
         card=await turn('@Agent 不要加入','pm');assert.equal(card.followUps![0].status,'answered');const old=card.followUps![0].answerMessageId;
-        card=await turn('我撤回刚才不加入的决定，暂时没想好','pm',id);assert.equal(waitingQuestion(card)?.id,id);assert.equal(card.followUps![0].answerHistory?.[0].messageId,old);
-        card=await turn('第一个','pm');assert.equal(waitingQuestion(card),undefined);assert.equal(card.followUps![0].status,'answered');assert.notEqual(card.followUps![0].answerMessageId,old);assert.deepEqual(card.fields,c.fields);assert.deepEqual(card.approvals,{});
+        card=await turn('@Agent 我撤回刚才不加入的决定，暂时没想好','pm',id);assert.equal(waitingQuestion(card)?.id,id);assert.equal(card.followUps![0].answerHistory?.[0].messageId,old);
+        card=await turn('@Agent 第一个','pm');assert.equal(waitingQuestion(card),undefined);assert.equal(card.followUps![0].status,'answered');assert.notEqual(card.followUps![0].answerMessageId,old);assert.deepEqual(card.fields,c.fields);assert.deepEqual(card.approvals,{});
       }finally{queue.close();}
     });
 
@@ -326,10 +326,10 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       }finally{adoptedWhileBuilding.close();}
     });
 
-    await t.test('自动讨论任务合并并发消息、丢弃旧分析，回答后只生成待采纳建议',async()=>{
+    await t.test('@Agent 队列合并连续提问、丢弃旧分析，回答后只生成待采纳建议',async()=>{
       const {createDiscussionQueue}=await import('../server/discussion-jobs.ts');
       const p=readyProject('自动追问 API 测试'),c=p.cards[0];
-      applyAction(p,{type:'message',cardId:c.id,text:'交接后原负责人访问规则仍有不确定的地方。'},'pm');await db.insertProject(p);
+      applyAction(p,{type:'message',cardId:c.id,text:'@Agent 交接后原负责人访问规则仍有不确定的地方。'},'pm');await db.insertProject(p);
       let release!:()=>void,started!:()=>void,calls=0;
       const gate=new Promise<void>(resolve=>{release=resolve;}),entered=new Promise<void>(resolve=>{started=resolve;});
       const queue=createDiscussionQueue({enabled:true,delayMs:1,analyze:async card=>{
@@ -341,32 +341,37 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       },suggest:async card=>({summary:'按最新讨论形成权限建议，待产品采纳。',issues:[],changes:[{field:'permission',before:card.fields.permission,after:'原负责人立即撤销访问权限，包括旧链接。',reason:'业务回答',evidence:[{messageId:card.messages.at(-1)!.id,quote:card.messages.at(-1)!.text}]}]})});
       try{
         const job=await queue.enqueue(p.id,c.id);await entered;
-        await db.mutateProject(p.id,current=>applyAction(current,{type:'message',cardId:c.id,text:'再补充：旧链接能否继续访问，也一起明确。'},'reviewer'));
+        await db.mutateProject(p.id,current=>applyAction(current,{type:'message',cardId:c.id,text:'@Agent 再补充：旧链接能否继续访问，也一起明确。'},'reviewer'));
         assert.equal((await queue.enqueue(p.id,c.id))?.id,job!.id);release();
         assert.equal((await waitJob(p.id,job!.id)).status,'succeeded');
         let current=await db.getProject(p.id);assert.equal(current.cards[0].followUps?.length,1);assert.doesNotMatch(current.cards[0].followUps![0].question,/旧问题/);assert.equal(calls,2);
         const question=current.cards[0].followUps![0];
-        const response=await act(current,{type:'message',cardId:c.id,text:'交接后立即撤权，旧链接也不能继续访问。',replyTo:question.id},'business');assert.equal(response.statusCode,200);
+        const response=await act(current,{type:'message',cardId:c.id,text:'@Agent 交接后立即撤权，旧链接也不能继续访问。',replyTo:question.id},'business');assert.equal(response.statusCode,200);
         const second=await queue.enqueue(p.id,c.id);assert.equal((await waitJob(p.id,second!.id)).status,'succeeded');
         current=await db.getProject(p.id);assert.equal(current.cards[0].followUps![0].status,'answered');assert.equal(current.cards[0].suggestion?.status,'待决定');assert.deepEqual(current.cards[0].fields,c.fields);assert.deepEqual(current.cards[0].approvals,{});assert.equal(current.phase,p.phase);assert.equal(await queue.enqueue(p.id,c.id),undefined);
       }finally{release();queue.close();}
     });
 
-    await t.test('短答与@Agent否定答复都通过真实队列结束原追问，模型quiet不再吞掉决定',async()=>{
+    await t.test('普通短答只入群，带 @Agent 的短答可结束原追问',async()=>{
       const {createDiscussionQueue}=await import('../server/discussion-jobs'),{attachDiscussion}=await import('../server/discussion'),{discussionBasis,waitingQuestion}=await import('../shared/discussion');
       for(const text of ['不要加入','@Agent 不要加入']){
        const p=readyProject('否定短答 '+text),c=p.cards[0];applyAction(p,{type:'message',cardId:c.id,text:'能不能增加购买平台按钮？'},'business','business-operations');
        attachDiscussion(p,c.id,{answer:null,question:{field:'scope',question:'本期是否纳入购买平台占位按钮？',options:['本期纳入占位按钮','本期不纳入，暂不添加该按钮'],role:'pm',participantId:'pm'},summarize:false},discussionBasis(p,c));const questionId=waitingQuestion(c)!.id;
        applyAction(p,{type:'message',cardId:c.id,text},'pm','pm');const answerId=c.messages.at(-1)!.id;await db.insertProject(p);let calls=0;
        const queue=createDiscussionQueue({enabled:true,delayMs:1,analyze:async()=>{calls++;return {handling:{mode:'quiet',trigger:'none',reason:''},answer:null,question:null,summarize:false};}});
-       try{const job=await queue.enqueue(p.id,c.id);assert.ok(job);assert.equal((await waitJob(p.id,job.id)).status,'succeeded');const after=(await db.getProject(p.id)).cards[0];const q=after.followUps!.find(q=>q.id===questionId)!;assert.equal(q.status,'answered');assert.equal(q.answerMessageId,answerId);assert.equal(waitingQuestion(after),undefined);assert.match(after.messages.at(-1)!.text,/不纳入/);assert.deepEqual(after.fields,c.fields);assert.deepEqual(after.approvals,c.approvals);assert.equal(calls,1);
+       try{const job=await queue.enqueue(p.id,c.id);
+        if(text==='不要加入'){
+         assert.equal(job,undefined);assert.equal((await db.listJobs(p.id)).length,0);assert.equal(calls,0);
+         assert.equal(waitingQuestion((await db.getProject(p.id)).cards[0])?.id,questionId);continue;
+        }
+        assert.ok(job);assert.equal((await waitJob(p.id,job.id)).status,'succeeded');const after=(await db.getProject(p.id)).cards[0];const q=after.followUps!.find(q=>q.id===questionId)!;assert.equal(q.status,'answered');assert.equal(q.answerMessageId,answerId);assert.equal(waitingQuestion(after),undefined);assert.match(after.messages.at(-1)!.text,/不纳入/);assert.deepEqual(after.fields,c.fields);assert.deepEqual(after.approvals,c.approvals);assert.equal(calls,1);
        }finally{queue.close();}
       }
     });
 
     await t.test('讨论校验失败不泄露内部诊断，显式重试后恢复正式追问',async()=>{
       const {createDiscussionQueue}=await import('../server/discussion-jobs'),{SafeAIError}=await import('../server/ai');
-      const p=readyProject('追问失败友好提示'),c=p.cards[0];applyAction(p,{type:'message',cardId:c.id,text:'能不能加一个购买平台的按钮'},'business','business-operations');await db.insertProject(p);let calls=0;
+      const p=readyProject('追问失败友好提示'),c=p.cards[0];applyAction(p,{type:'message',cardId:c.id,text:'@Agent 能不能加一个购买平台的按钮'},'business','business-operations');await db.insertProject(p);let calls=0;
       const queue=createDiscussionQueue({enabled:true,delayMs:1,analyze:async()=>{if(++calls===1)throw new SafeAIError('需要真人回答时必须生成对象一致的正式追问，不能只在文字中点名。');return {replyRequest:{participantId:'business-operations',purpose:'usage'},answer:null,question:{field:'flow',question:'购买平台按钮点击后希望做什么？',options:['跳转购买网站','记录平台名称'],role:'business',participantId:'business-operations'},summarize:false};}});
       try{const first=await queue.enqueue(p.id,c.id);const failed=await waitJob(p.id,first!.id);assert.equal(failed.status,'failed');assert.match(failed.error!,/讨论内容已保留/);assert.doesNotMatch(failed.error!,/对象一致|校验|replyRequest/);
        const retry=await queue.enqueue(p.id,c.id,true);assert.equal((await waitJob(p.id,retry!.id)).status,'succeeded');const updated=(await db.getProject(p.id)).cards[0];assert.equal(updated.followUps?.at(-1)?.participantId,'business-operations');assert.deepEqual(updated.fields,c.fields);assert.equal(calls,2);
@@ -375,18 +380,18 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
 
     await t.test('已读讨论后建议失败仍可显式重试，正常监听不会重复分析',async()=>{
       const {createDiscussionQueue}=await import('../server/discussion-jobs'),{SafeAIError}=await import('../server/ai');
-      const p=readyProject('失败讨论重试'),c=p.cards[0];applyAction(p,{type:'message',cardId:c.id,text:'交接时需要把权限变化提示得更明确。'},'business');await db.insertProject(p);let calls=0;
+      const p=readyProject('失败讨论重试'),c=p.cards[0];applyAction(p,{type:'message',cardId:c.id,text:'@Agent 交接时需要把权限变化提示得更明确。'},'business');await db.insertProject(p);let calls=0;
       const queue=createDiscussionQueue({enabled:true,delayMs:1,analyze:async()=>({answer:null,question:null,summarize:true}),suggest:async card=>{if(++calls===1)throw new SafeAIError('合成字段依赖结构错误');return {summary:'合成重试成功',issues:[],changes:[{field:'quality',before:card.fields.quality,after:card.fields.quality+' 合成调整',reason:'合成',evidence:[]}]};}});
       try{const first=await queue.enqueue(p.id,c.id);assert.equal((await waitJob(p.id,first!.id)).status,'failed');assert.equal((await db.getProject(p.id)).cards[0].assistantCursor,c.messages.at(-1)!.id);assert.equal(await queue.enqueue(p.id,c.id),undefined);const second=await queue.enqueue(p.id,c.id,true);assert.ok(second);assert.equal((await waitJob(p.id,second.id)).status,'succeeded');assert.equal(calls,2);const after=await db.getProject(p.id);assert.equal(after.cards[0].suggestion?.status,'待决定');assert.deepEqual(after.cards[0].fields,c.fields);}finally{queue.close();}
     });
 
     await t.test('轻量回应不调用专家评估，深评先保存卡片并丢弃并发旧结果',async()=>{
       const {createDiscussionQueue}=await import('../server/discussion-jobs');
-      const p=readyProject('直接与深评'),c=p.cards[0];applyAction(p,{type:'message',cardId:c.id,text:'请解释当前交接规则的含义。'},'business');await db.insertProject(p);
+      const p=readyProject('直接与深评'),c=p.cards[0];applyAction(p,{type:'message',cardId:c.id,text:'@Agent 请解释当前交接规则的含义。'},'business');await db.insertProject(p);
       let evaluations=0;
       const light=createDiscussionQueue({enabled:true,delayMs:1,analyze:async()=>({handling:{mode:'direct',trigger:'none',reason:''},reply:'交接规则用于说明负责人变化后的访问权限。',answer:null,question:null,summarize:false}),evaluate:async()=>{evaluations++;throw Error('简单回复不得深评');}});
       try{const job=await light.enqueue(p.id,c.id);assert.equal((await waitJob(p.id,job!.id)).status,'succeeded');assert.equal(evaluations,0);assert.equal((await db.getProject(p.id)).cards[0].assessments,undefined);}finally{light.close();}
-      await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'交接后继续访问与立即撤权有冲突，需要评估。'},'business'));
+      await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'@Agent 交接后继续访问与立即撤权有冲突，需要评估。'},'business'));
       let release!:()=>void,entered!:()=>void;const gate=new Promise<void>(r=>{release=r;}),started=new Promise<void>(r=>{entered=r;});
       const queue=createDiscussionQueue({enabled:true,delayMs:1,classifyInterruption:async()=> 'related',analyze:async()=>({handling:{mode:'deep',trigger:'conflict',reason:'交接与访问规则相互冲突'},answer:null,question:null,summarize:false}),evaluate:async(_p,card)=>{
         evaluations++;if(evaluations===1){entered();await gate;}
@@ -395,7 +400,7 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       try{
         const job=await queue.enqueue(p.id,c.id);await started;
         const during=await db.getProject(p.id);assert.equal(during.cards[0].assessments?.[0].status,'running');assert.equal(during.cards[0].assessments?.[0].report,undefined);assert.deepEqual(during.cards[0].fields,c.fields);
-        await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'还要把旧链接的有效期纳入一起评估。'},'business'));release();
+        await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'@Agent 还要把旧链接的有效期纳入一起评估。'},'business'));release();
         assert.equal((await waitJob(p.id,job!.id)).status,'succeeded');
         const after=await db.getProject(p.id),assessments=after.cards[0].assessments!;assert.equal(evaluations,2);assert.equal(assessments.length,1);assert.equal(assessments[0].id,job!.id);assert.equal(assessments[0].status,'completed');assert.doesNotMatch(JSON.stringify(assessments),/旧结果不应/);assert.deepEqual(after.cards[0].approvals,{});
       }finally{release();queue.close();}
@@ -405,7 +410,7 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       const {createDiscussionQueue}=await import('../server/discussion-jobs');
       for(const mode of ['irrelevant','cancel','race'] as const){
         const p=readyProject(`评估中断-${mode}`),c=p.cards[0];
-        applyAction(p,{type:'message',cardId:c.id,text:'请评估交接后的访问权限。'},'business');await db.insertProject(p);
+        applyAction(p,{type:'message',cardId:c.id,text:'@Agent 请评估交接后的访问权限。'},'business');await db.insertProject(p);
         let release!:()=>void,enter!:()=>void,evaluations=0,checks=0;
         const gate=new Promise<void>(r=>{release=r;}),started=new Promise<void>(r=>{enter=r;});
         const queue=createDiscussionQueue({enabled:true,delayMs:1,
@@ -413,13 +418,13 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
           evaluate:async()=>{evaluations++;if(evaluations===1){enter();await gate;}return {report:{conclusion:evaluations===1?'原评估结论':'已结合业务变化',perspectives:[],alternatives:[],evidence:[],unresolved:[],coverage:'当前讨论'},discussion:{answer:null,question:null,summarize:false}};},
           classifyInterruption:async(_p,_c,_reason,messages)=>{
             checks++;
-            if(mode==='race'&&checks===1)await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'业务补充：旧链接必须立即失效。'},'business'));
+            if(mode==='race'&&checks===1)await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'@Agent 业务补充：旧链接必须立即失效。'},'business'));
             return mode==='cancel'?'cancel':messages.some(m=>m.text.includes('业务补充'))?'related':'irrelevant';
           },
         });
         try{
           const job=await queue.enqueue(p.id,c.id);await started;
-          await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:mode==='cancel'?'取消本次评估':'今天天气怎么样，晚上吃点啥？'},'business'));
+          await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:mode==='cancel'?'@Agent 取消本次评估':mode==='race'?'@Agent 评估做到哪一步？':'今天天气怎么样，晚上吃点啥？'},'business'));
           release();assert.equal((await waitJob(p.id,job!.id)).status,'succeeded');
           const current=(await db.getProject(p.id)).cards[0],assessment=current.assessments![0];
           assert.equal(current.assessments!.length,1);assert.equal(evaluations,mode==='race'?2:1);
@@ -441,7 +446,7 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
     await t.test('专家评估失败可重试，重启恢复未完成卡片',async()=>{
       const {createDiscussionQueue}=await import('../server/discussion-jobs'),{SafeAIError}=await import('../server/ai');
       const {beginAssessment,assessmentBasis}=await import('../server/requirement-assessment');
-      const p=readyProject('评估失败重试'),c=p.cards[0];applyAction(p,{type:'message',cardId:c.id,text:'请多角度评估权限与流程的影响。'},'business');await db.insertProject(p);let calls=0;
+      const p=readyProject('评估失败重试'),c=p.cards[0];applyAction(p,{type:'message',cardId:c.id,text:'@Agent 请多角度评估权限与流程的影响。'},'business');await db.insertProject(p);let calls=0;
       const queue=createDiscussionQueue({enabled:true,delayMs:1,analyze:async()=>({handling:{mode:'deep',trigger:'explicit',reason:'用户要求多角度评估权限与流程'},answer:null,question:null,summarize:false}),evaluate:async()=>{
         if(++calls===1)throw new SafeAIError('评估服务暂不可用');
         return {report:{conclusion:'目前没有发现新的规则冲突。',perspectives:[],alternatives:[],evidence:[],unresolved:[],coverage:'仅参考提供的需求与讨论。'},discussion:{answer:null,question:null,summarize:false}};
@@ -466,7 +471,7 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       const {appendMaterialMessage}=await import('../server/chat-messages');
       const {textMaterial}=await import('../server/materials');
       const p=readyProject('复杂附件保留草稿'),c=p.cards[0],material=textMaterial('附件独立需求','需要发送站内提醒。');
-      appendMaterialMessage(p,c.id,'business',{text:'请评估附件里的独立提醒需求与当前规则的关系。',clientMessageId:'assessment-material'},[material]);await db.insertProject(p);let routes=0;
+      appendMaterialMessage(p,c.id,'business',{text:'@Agent 请评估附件里的独立提醒需求与当前规则的关系。',clientMessageId:'assessment-material'},[material]);await db.insertProject(p);let routes=0;
       const queue=createDiscussionQueue({enabled:true,delayMs:1,route:async(_p,_c,materials,_ids,_warnings,assessed)=>{
         routes++;if(!assessed)return {handling:{mode:'deep',trigger:'coupled_rules',reason:'附件需求与现有流程关联'},reply:'',clarifiesCurrent:false,evidence:[],relatedCardIds:[],cards:[]};
         return {reply:'附件中的独立需求已形成草稿。',clarifiesCurrent:false,evidence:[],relatedCardIds:[],cards:[{key:'notice',title:'独立提醒',granularity:'具体',origin:'材料要求',rationale:'附件明确提出独立提醒',coverageGaps:[],fields:{...c.fields,goal:'需要发送站内提醒。'},sourceIds:[materials[0].id],assessment:'待澄清',issues:[],evidence:{goal:[{materialId:materials[0].id,quote:'需要发送站内提醒。'}]}}]};
@@ -707,7 +712,7 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       const {textMaterial}=await import('../server/materials');
       for(const mode of ['reply','new','clarify'] as const){
         const p=readyProject('材料路由 '+mode),c=p.cards[0],material=textMaterial('补充.md','支持企业提交到达时间。提醒失败不影响记录。');
-        appendMaterialMessage(p,c.id,'business-operations',{text:'请结合附件分析。',clientMessageId:randomUUID()},[material]);
+        appendMaterialMessage(p,c.id,'business-operations',{text:mode==='reply'?'补充文件。':'@Agent 请结合附件分析。',clientMessageId:randomUUID()},[material]);
         if(mode==='reply'){material.status='处理中';material.text='';}
         await db.insertProject(p);let routes=0,suggestions=0,demos=0;
         const queue=createDiscussionQueue({enabled:true,delayMs:2,analyze:async()=>{throw new Error('附件不应走盲目追问');},route:async(_p,_c,materials)=>{
@@ -715,6 +720,10 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
           return {reply:mode==='reply'?'这是对资料的说明，不需要更改需求。':mode==='new'?'建议核对独立新卡草稿。':'这份材料可以明确当前异常处理。',clarifiesCurrent:mode==='clarify',evidence:[{materialId:material.id,quote:'提醒失败不影响记录'}],relatedCardIds:[],cards:mode==='new'?[{key:'arrival',title:'企业到达信息登记',granularity:'具体',origin:'材料要求',rationale:'独立登记业务',coverageGaps:[],fields:{goal:'支持企业提交到达时间',scope:'待明确',flow:'待明确',permission:'待明确',exception:'待明确',data:'待明确',constraint:'待明确',quality:'待明确',acceptance:'待明确'},sourceIds:[material.id],assessment:'待澄清',issues:[],evidence:{goal:[{materialId:material.id,quote:'支持企业提交到达时间'}]}}]:[]};
         },suggest:async current=>{suggestions++;return {summary:'提醒异常规则待人工采纳。',issues:[],changes:[{field:'exception',before:current.fields.exception,after:'提醒失败不影响记录。',reason:'新附件补充异常规则',evidence:[{materialId:material.id,quote:'提醒失败不影响记录。'}]}]};},onSuggested:async()=>{demos++;}});
         try{
+          if(mode==='reply'){
+           assert.equal(await queue.enqueue(p.id,c.id),undefined);assert.equal((await db.listJobs(p.id)).length,0);
+           await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'@Agent 请解释刚才发的文件。'},'business','business-operations'));
+          }
           const job=await queue.enqueue(p.id,c.id);
           if(mode==='reply'){await new Promise(resolve=>setTimeout(resolve,20));assert.equal(routes,0);await db.mutateProject(p.id,next=>{const m=next.materials.find(m=>m.id===material.id)!;m.status='待整理';m.text='支持企业提交到达时间。提醒失败不影响记录。';});}
           assert.equal((await waitJob(p.id,job!.id)).status,'succeeded');
@@ -726,12 +735,19 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       }
     });
 
-    await t.test('无附件的只读提问不会因否定词后的生成指令而产生草稿',async()=>{
+    await t.test('@Agent 只读提问保持原话题，跟进的普通消息不会启动第二轮',async()=>{
       const {createDiscussionQueue}=await import('../server/discussion-jobs');
-      const p=readyProject('只读讨论'),c=p.cards[0];applyAction(p,{type:'message',cardId:c.id,text:'@Agent 请解释当前规则，不要修改需求或生成原型。'},'business','business');await db.insertProject(p);
+      const {latestHumanMessage}=await import('../shared/discussion');
+      const p=readyProject('只读讨论'),c=p.cards[0];
+      applyAction(p,{type:'message',cardId:c.id,text:'请把讨论汇总一下。'},'pm','pm');
+      const asked='@Agent 请解释当前规则，不要修改需求或生成原型。';
+      applyAction(p,{type:'message',cardId:c.id,text:asked},'business','business');
+      const requestId=c.messages.at(-1)!.id;
+      for(let index=0;index<5;index++)applyAction(p,{type:'message',cardId:c.id,text:`产品与业务讨论 ${index}`},'pm','pm');
+      await db.insertProject(p);
       let routed=0,suggested=0,demo=0;
-      const queue=createDiscussionQueue({enabled:true,delayMs:2,analyze:async()=>{routed++;return {reply:'这里只解释当前规则。',answer:null,question:null,summarize:false};},route:async()=>{throw Error('无附件不走材料路由');},suggest:async()=>{suggested++;throw new Error('不能生成草稿');},onSuggested:async()=>{demo++;}});
-      try{const job=await queue.enqueue(p.id,c.id);assert.equal((await waitJob(p.id,job!.id)).status,'succeeded');const current=await db.getProject(p.id);assert.equal(routed,1);assert.equal(suggested,0);assert.equal(demo,0);assert.equal(current.cards[0].suggestion,undefined);assert.deepEqual(current.cards[0].fields,c.fields);assert.deepEqual(current.cards[0].approvals,{});assert.deepEqual(current.version,p.version);assert.equal(current.phase,p.phase);}finally{queue.close();}
+      const queue=createDiscussionQueue({enabled:true,delayMs:2,analyze:async card=>{routed++;assert.equal(latestHumanMessage(card)?.id,requestId);assert.match(card.messages[0].text,/汇总/);await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'请重画原型。'},'pm','pm'));return {reply:'这里只解释当前规则。',answer:null,question:null,summarize:false};},route:async()=>{throw Error('无附件不走材料路由');},suggest:async()=>{suggested++;throw new Error('不能生成草稿');},onSuggested:async()=>{demo++;}});
+      try{const job=await queue.enqueue(p.id,c.id);assert.ok(job);assert.equal((await waitJob(p.id,job.id)).status,'succeeded');const current=await db.getProject(p.id),after=current.cards[0];assert.equal(routed,1);assert.equal(suggested,0);assert.equal(demo,0);assert.equal(after.messages.at(-1)?.text,'这里只解释当前规则。');assert.equal(after.assistantCursor,requestId);assert.equal(await queue.enqueue(p.id,c.id),undefined);assert.equal(after.suggestion,undefined);assert.deepEqual(after.fields,c.fields);assert.deepEqual(after.approvals,{});assert.deepEqual(current.version,p.version);assert.equal(current.phase,p.phase);}finally{queue.close();}
     });
 
     await t.test('无当前追问时 @Agent 撤回或定向回复暂缓问题仍更新原问题',async()=>{
@@ -765,10 +781,10 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
 
     await t.test('附件分析中继续发言时丢弃旧建议，以新指示回应而不生成修改',async()=>{
       const {createDiscussionQueue}=await import('../server/discussion-jobs');const {appendMaterialMessage}=await import('../server/chat-messages');const {textMaterial}=await import('../server/materials');
-      const p=readyProject('材料并发'),c=p.cards[0],m=textMaterial('补充.md','只需说明取消规则');appendMaterialMessage(p,c.id,'business',{text:'看看材料',clientMessageId:randomUUID()},[m]);await db.insertProject(p);
+      const p=readyProject('材料并发'),c=p.cards[0],m=textMaterial('补充.md','只需说明取消规则');appendMaterialMessage(p,c.id,'business',{text:'@Agent 看看材料',clientMessageId:randomUUID()},[m]);await db.insertProject(p);
       let release!:()=>void,started!:()=>void,calls=0;const gate=new Promise<void>(r=>{release=r;}),entered=new Promise<void>(r=>{started=r;});
       const queue=createDiscussionQueue({enabled:true,delayMs:2,route:async()=>{if(++calls===1){started();await gate;}return {reply:calls===1?'过期建议不得写入':'只解释材料，不生成修改。',clarifiesCurrent:calls===1,evidence:[],relatedCardIds:[],cards:[]};},suggest:async()=>{throw new Error('用户只要回答，不能修改');}});
-      try{const job=await queue.enqueue(p.id,c.id);await entered;await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'先只解释材料，不生成修改建议。'},'pm','pm'));release();assert.equal((await waitJob(p.id,job!.id)).status,'succeeded');const current=await db.getProject(p.id);assert.equal(calls,2);assert.equal(current.cards[0].messages.filter(m=>m.role==='agent').length,1);assert.equal(current.cards[0].messages.at(-1)?.text,'只解释材料，不生成修改。');assert.equal(current.cards[0].suggestion,undefined);}finally{release();queue.close();}
+      try{const job=await queue.enqueue(p.id,c.id);await entered;await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'@Agent 先只解释材料，不生成修改建议。'},'pm','pm'));release();assert.equal((await waitJob(p.id,job!.id)).status,'succeeded');const current=await db.getProject(p.id);assert.equal(calls,2);assert.equal(current.cards[0].messages.filter(m=>m.role==='agent').length,1);assert.equal(current.cards[0].messages.at(-1)?.text,'只解释材料，不生成修改。');assert.equal(current.cards[0].suggestion,undefined);}finally{release();queue.close();}
     });
 
     await t.test('文字与多文件上传登记自动分析，不要求勾选；未启用模型时保留材料与人工确认边界',async()=>{

@@ -7,7 +7,7 @@ import {textMaterial} from '../server/materials';
 import {appendMaterialMessage} from '../server/chat-messages';
 import {attachConversationRoute,validateConversationRoute} from '../server/chat-routing';
 import {attachmentWarnings,conversationMaterials,pendingAttachmentMessages} from '../shared/chat-attachments';
-import {discussionBasis,shouldListen} from '../shared/discussion';
+import {discussionBasis,discussionRequest} from '../shared/discussion';
 import {FIELDS,type Fields,type IntakeCandidate} from '../shared/types';
 
 const formal=(p:ReturnType<typeof createCRMExperience>,index=1)=>structuredClone({fields:p.cards[index].fields,revision:p.cards[index].revision,approvals:p.cards[index].approvals,blockers:p.cards[index].blockers,phase:p.phase,version:p.version,cards:p.cards.length});
@@ -21,7 +21,7 @@ test('业务成员可发送附件，保留作者及材料来源；重试不重�
  const sent=appendMaterialMessage(p,c.id,'business-operations',input,[material]);
  assert.equal(sent.message.participantId,'business-operations');assert.deepEqual(sent.message.materialIds,[material.id]);
  assert.equal(material.sourceConversation?.messageId,sent.message.id);assert.match(material.location,/赵凯/);
- assert.deepEqual(formal(p),before);assert.equal(shouldListen(p,c),true);
+ assert.deepEqual(formal(p),before);assert.equal(discussionRequest(p,c),undefined);
  const count=c.messages.length,materials=p.materials.length;
  assert.equal(appendMaterialMessage(p,c.id,'business-operations',input,[textMaterial('再传.md','重复的传输')]).created,false);
  assert.equal(c.messages.length,count);assert.equal(p.materials.length,materials);

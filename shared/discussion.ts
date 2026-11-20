@@ -1,13 +1,12 @@
 import {isBusinessOwner,isQuestionRecipient,personFor,type ParticipantId} from './participants';
-import {cardStatus,type Card,type Project,type Role} from './types.ts';
-import {pendingAttachmentMessages} from './chat-attachments';
+import {cardStatus,type Card,type Message,type Project,type Role} from './types.ts';
 import {readInterfaceTitleChange} from './interface-title';
+import {mentionsAgent} from './agent-mention';
 
 export const roleNames:Record<Role,string>={pm:'产品经理',business:'业务负责人',reviewer:'历史参与者'};
 export const latestHumanMessage=(card:Card)=>card.messages.filter(m=>m.role!=='agent').at(-1);
 export const waitingQuestion=(card:Card)=>card.included&&card.granularity!=='概要'?card.followUps?.find(q=>q.status==='waiting'&&q.role!=='reviewer'&&q.baseRevision===card.revision):undefined;
 export const unansweredQuestion=(card:Card)=>waitingQuestion(card)||(card.included&&card.granularity!=='概要'?card.followUps?.find(q=>q.status==='deferred'&&q.baseRevision===card.revision):undefined);
-export const isAgentRequest=(text:string)=>/@\s*(?:agent|助手|需求助手|需求伙伴)|更新.*(?:演示|原型)|(?:请|帮我).*(?:整理|总结|生成)/i.test(text);
 export function isRequirementUpdateRequest(text:string){
  if(readInterfaceTitleChange(text))return true;
  // Treat a negated instruction as a question/reply, not a request to make a draft.
@@ -17,17 +16,12 @@ export function isRequirementUpdateRequest(text:string){
   return /(?:更新|修改|生成|整理|总结).*(?:原型|需求|字段|结论|修改建议)|(?:按|根据).*(?:讨论|口径).*(?:整理|更新|修改)/i.test(clause);
  });
 }
-export function shouldListen(project:Project,card:Card){
- const last=latestHumanMessage(card);
- if(!last||last.id===card.assistantCursor||card.granularity==='概要'||!card.included||project.deliveries.some(d=>!d.completedAt))return false;
- if(last.kind==='change'&&!last.accepted)return false;
- const mostRecentApproval=Object.values(card.approvals).sort((a,b)=>b.createdAt.localeCompare(a.createdAt))[0];
- if(mostRecentApproval&&last.createdAt<mostRecentApproval.createdAt)return false;
- const pending=waitingQuestion(card);
- if(pending&&last.role!=='agent'&&isQuestionRecipient(pending,last.role,last.participantId)&&card.messages.findIndex(m=>m.id===last.id)>card.messages.findIndex(m=>m.id===pending.sourceMessageId))return true;
- if(pendingAttachmentMessages(card).length||isAgentRequest(last.text)||last.replyTo||/专家|多视角|多角度|评估/.test(last.text))return true;
- if(/^(?:(?:好的?|收到|谢谢|嗯|是的|了解|同意|没问题|可以|确认)[，,。！!\s]*)+$/.test(last.text.trim()))return false;
- return last.text.trim().length>0;
+export function discussionRequest(project:Project,card:Card,retry=false):Message|undefined{
+ if(card.granularity==='概要'||!card.included||project.deliveries.some(d=>!d.completedAt))return;
+ const cursor=retry?-1:card.messages.findIndex(message=>message.id===card.assistantCursor);
+ const approvedAt=Object.values(card.approvals).map(approval=>approval.createdAt).sort().at(-1);
+ return card.messages.findLast((message,index)=>index>cursor&&message.role!=='agent'&&
+  (message.kind!=='change'||message.accepted)&&(!approvedAt||message.createdAt>=approvedAt)&&mentionsAgent(message.text));
 }
 // Changes to people’s decisions while a model is running invalidate its result too.
 export function discussionBasis(project:Project,card:Card){

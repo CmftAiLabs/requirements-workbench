@@ -1,6 +1,7 @@
 import {eligibleQuestionAnswer} from './question-lifecycle';
 import type {Card,FollowUp} from './types';
 import {latestHumanMessage,waitingQuestion} from './discussion';
+import {withoutLeadingAgentMention} from './agent-mention';
 import {isQuestionRecipient} from './participants';
 
 export function questionAnswerCandidate(card:Card){
@@ -11,7 +12,7 @@ export function questionAnswerCandidate(card:Card){
  if(!eligibleQuestionAnswer(card,question,message))return null;
  return {message,question};
 }
-const comparable=(value:string)=>value.replace(/^\s*@\s*(?:agent|需求助手|需求伙伴|助手)\s*/i,'').normalize('NFKC').replace(/[\s\p{P}\p{S}]/gu,'');
+const comparable=(value:string)=>withoutLeadingAgentMention(value).normalize('NFKC').replace(/[\s\p{P}\p{S}]/gu,'');
 
 /** Only match explicit options or an unambiguous, two-option inclusion question.
  * Do not turn arbitrary acknowledgements, other people's replies, or negatives

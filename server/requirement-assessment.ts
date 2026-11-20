@@ -1,7 +1,7 @@
 import {questionRoutingRules} from './question-routing';
 import {withdrawalCandidates} from '../shared/question-lifecycle';
 import {questionAnswerCandidate} from '../shared/question-answer';
-import {discussionMessages,currentDiscussionTopic} from './discussion-context';
+import {discussionMessages,currentDiscussionTopic,currentAgentTurn} from './discussion-context';
 import {createHash} from 'node:crypto';
 import {z} from 'zod';
 import {FIELDS,type Card,type Project,type DiscussionAnalysis} from '../shared/types';
@@ -70,10 +70,12 @@ export async function classifyAssessmentInterruption(project:Project,card:Card,r
  raw=>interruptionSchema.parse(raw).decision,500,{tools:false});
 }
 
-export function beginAssessment(project:Project,card:Card,id:string,reason:string,basis:string):RequirementAssessment|undefined{
- if(assessmentBasis(project,card)!==basis||!latestHumanMessage(card))return;
+export function beginAssessment(project:Project,card:Card,id:string,reason:string,basis:string,requestId?:string):RequirementAssessment|undefined{
+ const turn=requestId?currentAgentTurn(project,card,requestId):card;
+ const source=latestHumanMessage(turn);
+ if(assessmentBasis(project,turn)!==basis||!source)return;
  const now=new Date().toISOString(),existing=card.assessments?.find(a=>a.id===id);
- const value:RequirementAssessment={id,jobId:id,sourceMessageId:latestHumanMessage(card)!.id,baseRevision:card.revision,createdAt:existing?.createdAt||now,updatedAt:now,status:'running',reason,methodVersion:'requirements-session-v1'};
+ const value:RequirementAssessment={id,jobId:id,sourceMessageId:source.id,baseRevision:card.revision,createdAt:existing?.createdAt||now,updatedAt:now,status:'running',reason,methodVersion:'requirements-session-v1'};
  if(existing)Object.assign(existing,value,{report:undefined,error:undefined,questionId:undefined});else(card.assessments||=[]).push(value);
  return existing||value;
 }

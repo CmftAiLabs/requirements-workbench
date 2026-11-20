@@ -21,6 +21,7 @@ try{
  const {discussionReplayProject}=await import('../tests/fixtures/discussion-replay');
  const {applyAction}=await import('../server/domain'),{attachDiscussion}=await import('../server/discussion');
  const {discussionBasis}=await import('../shared/discussion'),{PARTICIPANTS}=await import('../shared/participants');
+ const {mentionAgent}=await import('../shared/agent-mention');
  const {discussionDisplay}=await import('../server/discussion-scope');
  queue=createDiscussionQueue({enabled:true,delayMs:1}); // onSuggested deliberately does not generate prototypes.
  async function fixture(name:string,prepare?:(p:Project,c:Card)=>void){
@@ -29,7 +30,7 @@ try{
   async function turn(person:ParticipantId,text:string,check:(card:Card)=>void,replyTo?:string,legacyReply=false){
    const start=Date.now(),personRole=PARTICIPANTS.find(p=>p.id===person)!.role;
    const before=await store!.getProject(p.id),messageCount=before.cards[0].messages.length,assessmentCount=before.cards[0].assessments?.length||0;
-   await store!.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text,...(replyTo?{replyTo}:{})},personRole,person));
+   await store!.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:mentionAgent(text),...(replyTo?{replyTo}:{})},personRole,person));
    if(legacyReply)await store!.mutateProject(p.id,next=>{
     const card=next.cards[0],last=card.messages.at(-1)!;
     card.messages.push({id:randomUUID(),role:'agent',text:'旧版仅回复：收到撤回。',createdAt:new Date().toISOString(),materialReply:{contextMessageId:last.id,sourceMessageIds:[],materialIds:[],clarifiesCurrent:false,relatedCardIds:[],evidence:[],warnings:[]}});card.assistantCursor=last.id;

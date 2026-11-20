@@ -1,6 +1,3 @@
-import {explainClarification} from './clarification-help';
-import {clarificationBasis,clarificationTarget} from '../shared/idle-clarification';
-import {waitingQuestion} from '../shared/discussion';
 import {modelOptions,modelPolicies,visionModel,setSelectedModel} from './model-settings';
 import {PARTICIPANTS,participantById,defaultParticipantId,type ActiveRole} from '../shared/participants';
 import Fastify from 'fastify';
@@ -27,7 +24,7 @@ import {createCRMExperience,applyCRMExampleConclusion} from './experience.js';
 import {workspacePRD,prdWord,demoZip} from './workspace-export.js';
 import {buildDemoHTML} from '../shared/project-demo.ts';
 import {actionRequest,materialRequest,extractionRequest,refinementRequest} from './validation.js';
-import {ROLES,type Role,type Job,type Action,type Material,type ArchiveEntry,type Card} from '../shared/types.js';
+import {ROLES,type Role,type Job,type Action,type Material,type ArchiveEntry} from '../shared/types.js';
 import {getChatDisabledReason} from '../shared/chat-policy.js';
 import {createDemoQueue,reconcileDemo} from './demo-jobs.ts';
 import {demoView,demoArtifactHTML,generatedDemoZip} from './demo-builder.ts';
@@ -35,7 +32,8 @@ import {createDiscussionQueue} from './discussion-jobs.ts';
 import {createIntakeQueue} from './intake-jobs';
 import {appendMaterialMessage} from './chat-messages';
 import {CHAT_MAX_FILES,CHAT_MAX_BYTES,attachmentDisabledReason,pendingAttachmentMessages,conversationMaterials} from '../shared/chat-attachments';
-import {latestHumanMessage} from '../shared/discussion.ts';
+import {discussionRequest,latestHumanMessage} from '../shared/discussion.ts';
+import {mentionsAgent} from '../shared/agent-mention';
 import {createWorkspaceSync,compactProject} from './workspace-sync';
 import {digest} from './demo-schema';
 import {metricsSnapshot,recordMetric} from './metrics';
@@ -237,12 +235,12 @@ export async function buildApp(){
   const {action,stamp}=actionRequest.parse(req.body);
   if(action.type==='message'&&req.headers.prefer==='return=minimal'){
    const id=params(req).id;await appendDiscussion(id,action,roleOf(req),participantOf(req).id,stamp);
-   void discussion.enqueue(id,action.cardId).catch(()=>console.error('自动整理未能排队，已保存讨论消息。'));
+   if(mentionsAgent(action.text))void discussion.enqueue(id,action.cardId).catch(()=>console.error('@Agent 请求未能排队，已保存讨论消息。'));
    return reply.code(204).send();
   }
   const changesDemo=['confirmProductSuggestion','adoptConclusion','applySuggestion','editCard','scope','updateOverview','saveIntake'].includes(action.type);
   const result=await mutateProject(params(req).id,p=>{applyAction(p,action as Action,roleOf(req),participantOf(req).id);if(changesDemo)reconcileDemo(p);},stamp);
-  if(action.type==='message')await discussion.enqueue(result.project.id,action.cardId).catch(()=>console.error('自动整理未能排队，已保存讨论消息。'));
+  if(action.type==='message'&&mentionsAgent(action.text))await discussion.enqueue(result.project.id,action.cardId).catch(()=>console.error('@Agent 请求未能排队，已保存讨论消息。'));
   if(changesDemo&&(result.project.generatedDemo||action.type==='saveIntake'&&action.importSelected))await demos.enqueue(result.project.id,'cardId' in action?action.cardId:undefined).catch(()=>console.error('Demo 更新排队失败'));
   return req.headers.prefer==='return=minimal'?reply.code(204).send():result.project;
  });
@@ -278,7 +276,7 @@ export async function buildApp(){
   const input=z.object({text:z.string().trim().max(5000).default(''),replyTo:z.string().min(1).max(120).optional(),clientMessageId:z.string().uuid()}).strict().parse(fields);
   if(!files.length)throw new Error('请先添加材料。');
   const duplicate=card!.messages.find(m=>m.clientMessageId===input.clientMessageId);
-  if(duplicate){if(duplicate.participantId!==person.id)throw new Error('这条材料消息属于其他参与人员。');await discussion.enqueue(id,cardId!);return {messageId:duplicate.id,duplicate:true};}
+  if(duplicate){if(duplicate.participantId!==person.id)throw new Error('这条材料消息属于其他参与人员。');if(mentionsAgent(duplicate.text))await discussion.enqueue(id,cardId!);return {messageId:duplicate.id,duplicate:true};}
   const prepared:Material[]=[];let saved=false;
   try{
    for(const file of files)prepared.push(await prepareUpload(file.name,file.buffer));
@@ -287,7 +285,7 @@ export async function buildApp(){
    if(saved)for(const material of prepared.filter(m=>m.status==='处理中')){
     try{await startMaterialProcessing(id,material)}catch(error){await markMaterialFailed(id,material.id,error)}
    }
-   await discussion.enqueue(id,cardId!).catch(()=>console.error('材料消息已保存，自动分析暂未排队，可重试。'));
+   if(mentionsAgent(result.message.text))await discussion.enqueue(id,cardId!).catch(()=>console.error('材料消息已保存，@Agent 请求暂未排队，可重试。'));
    return {messageId:result.message.id,duplicate:!result.created};
   }finally{
    if(!saved)await Promise.all(prepared.filter(m=>m.filePath).map(m=>rm(path.join(config.dataDir,m.filePath!)).catch(()=>{})));
@@ -296,12 +294,13 @@ export async function buildApp(){
  app.post('/api/projects/:id/cards/:cardId/conversation/retry',async req=>{
   const {id,cardId}=params(req),p=await getProject(id),card=p.cards.find(c=>c.id===cardId);
   const disabled=attachmentDisabledReason(p,card);if(disabled)throw new Error(disabled);
+  const {assessmentId}=z.object({assessmentId:z.string().min(1).optional()}).parse(req.body||{});
+  if(!assessmentId&&!discussionRequest(p,card!,true))return {message:'请在沟通消息中 @Agent 后发送。'};
   const materials=conversationMaterials(p,pendingAttachmentMessages(card!).flatMap(m=>m.materialIds||[]));
   for(const material of materials.filter(m=>m.status==='待解析'&&m.error&&m.filePath&&!m.archiveEntries&&(isImageFile(m.name)||isArchiveFile(m.name)))){
    const {result}=await mutateProject(id,current=>{const target=current.materials.find(m=>m.id===material.id)!;if(target.status!=='待解析')return false;target.status='处理中';delete target.error;return true;});
    if(result)try{await startMaterialProcessing(id,material)}catch(error){await markMaterialFailed(id,material.id,error)}
   }
-  const {assessmentId}=z.object({assessmentId:z.string().min(1).optional()}).parse(req.body||{});
   return await (assessmentId?discussion.resume(id,cardId!,assessmentId):discussion.enqueue(id,cardId!,true))||{message:'这轮讨论已处理，可继续补充材料或发言。'};
  });
  app.post('/api/projects/:id/materials',async req=>{
@@ -381,16 +380,8 @@ export async function buildApp(){
    job.result={batchId,draftId:parent.id,newDraftCount:refined.drafts.length-batch.drafts.length};
   });
  });
- app.post('/api/projects/:id/cards/:cardId/clarification-help',async req=>{
-  const {id,cardId}=params(req),{basis}=z.object({basis:z.string().max(4000)}).strict().parse(req.body);
-  const p=await getProject(id),card=p.cards.find(c=>c.id===cardId);
-  if(!card)throw new Error('需求不存在');
-  const available=async(c:Card|undefined)=>!!c&&c.included&&c.granularity!=='概要'&&!!clarificationTarget(c)&&!waitingQuestion(c)&&clarificationBasis(c)===basis&&!(await listJobs(id)).some(j=>j.cardId===cardId&&['listen','suggest'].includes(j.kind)&&['queued','running'].includes(j.status));
-  if(!config.modelConfigured||!await available(card))return {help:null};
-  const help=await explainClarification(card,p.materials);
-  const latest=(await getProject(id)).cards.find(c=>c.id===cardId);
-  return {help:await available(latest)?help:null,basis};
- });
+ // Tabs opened before this release may still request timed clarification hints.
+ app.post('/api/projects/:id/cards/:cardId/clarification-help',async()=>({help:null}));
  app.post('/api/projects/:id/cards/:cardId/suggest',async req=>{
   const {id,cardId}=params(req),p=await getProject(id),card=p.cards.find(c=>c.id===cardId);
   if(!card)throw new Error('需求卡片不存在');

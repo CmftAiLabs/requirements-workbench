@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {createCRMExperience} from '../server/experience.ts';
 import {applyAction} from '../server/domain.ts';
 import {attachDiscussion,validateDiscussion} from '../server/discussion.ts';
-import {discussionBasis,isRequirementUpdateRequest,latestHumanMessage,shouldListen,waitingLabel,waitingQuestion} from '../shared/discussion.ts';
+import {discussionBasis,discussionRequest,isRequirementUpdateRequest,latestHumanMessage,waitingLabel,waitingQuestion} from '../shared/discussion.ts';
 import {demoUpdate,readDemoTrace,tracePayload} from '../shared/demo-trace.ts';
 import {buildDemoHTML} from '../shared/project-demo.ts';
 import {getChatDisabledReason} from '../shared/chat-policy.ts';
@@ -23,7 +23,7 @@ test('主动追问只记录会话，不修改正文、确认、阶段与版本',
  assert.equal(attachDiscussion(p,c.id,question,discussionBasis(p,c)),true);
  assert.deepEqual({fields:c.fields,approvals:c.approvals,phase:p.phase,version:p.version,revision:c.revision,blockers:c.blockers},before);
  assert.equal(waitingLabel(c,'business'),'等你补充');assert.match(waitingLabel(c,'pm'),/陈敏/);
- assert.equal(shouldListen(p,c),false);
+ assert.equal(discussionRequest(p,c),undefined);
 });
 test('等待时不重复追问，不把其他角色和伪造引用当成回答',()=>{
  const {p,c,q}=asked();applyAction(p,{type:'message',cardId:c.id,text:'立即撤销访问'},'reviewer');const message=latestHumanMessage(c)!;
@@ -44,8 +44,8 @@ test('新消息或人工决定使旧分析失效，旧结果不能覆盖最新�
  const approvedBasis=discussionBasis(p,c);c.approvals.pm={id:'pm-test',role:'pm',revision:c.revision,round:c.round,result:'通过',comment:'人工核对',createdAt:new Date().toISOString()};assert.equal(attachDiscussion(p,c.id,question,approvedBasis),false);
 });
 test('新版需求与排除项不沿用旧等待状态；闲聊不触发模型',()=>{
- const {p,c}=asked();c.revision++;assert.equal(waitingQuestion(c),undefined);c.revision--;c.included=false;assert.equal(waitingQuestion(c),undefined);assert.equal(shouldListen(p,c),false);c.included=true;
- applyAction(p,{type:'message',cardId:c.id,text:'收到，谢谢'},'pm');assert.equal(shouldListen(p,c),false);
+ const {p,c}=asked();c.revision++;assert.equal(waitingQuestion(c),undefined);c.revision--;c.included=false;assert.equal(waitingQuestion(c),undefined);assert.equal(discussionRequest(p,c),undefined);c.included=true;
+ applyAction(p,{type:'message',cardId:c.id,text:'收到，谢谢'},'pm');assert.equal(discussionRequest(p,c),undefined);
 });
 test('关键问题待回答时不能确认，已确认卡片的新讨论仍出现在待处理列表',()=>{
  const p=createCRMExperience(),c=p.cards[1];
@@ -135,14 +135,19 @@ test('暂缓不等于已回答：仍阻止整卡确认，能定向回复且不�
  assert.equal(q.status,'answered');assert.equal(q.answerMessageId,message.id);assert.equal(waitingQuestion(c)?.id,current.id);
 });
 
-test('不再按字数过滤；当前被询问人的短答先结合原问题，而非被当成寒暄',()=>{
- const {p,c}=asked();
- for(const text of ['不','不加','不要加入','可以','收到']){
-  applyAction(p,{type:'message',cardId:c.id,text},'business');assert.equal(shouldListen(p,c),true,text);
+test('必须明确 @Agent 才产生请求，普通回复、附件、关键词和相似名称不触发',()=>{
+ const {p,c,q}=asked();
+ for(const text of ['不加','请帮我总结一下','按讨论更新原型并评估','@AgentX 请分析','邮箱是 ops@agent.example','访问 @agent.example']){
+  applyAction(p,{type:'message',cardId:c.id,text,replyTo:q.id},'business');
+  assert.equal(discussionRequest(p,c),undefined,text);
  }
- c.followUps=[];
- applyAction(p,{type:'message',cardId:c.id,text:'不加'},'pm');assert.equal(shouldListen(p,c),true);
- applyAction(p,{type:'message',cardId:c.id,text:'收到'},'pm');assert.equal(shouldListen(p,c),false);
+ applyAction(p,{type:'message',cardId:c.id,text:'＠aGeNt 不加',replyTo:q.id},'business');
+ const requested=latestHumanMessage(c);
+ assert.equal(discussionRequest(p,c),requested);
+ applyAction(p,{type:'message',cardId:c.id,text:'发给陈敏再核对'},'pm');
+ assert.equal(discussionRequest(p,c),requested);
+ c.assistantCursor=requested!.id;
+ assert.equal(discussionRequest(p,c),undefined);
 });
 function scopeQuestion(){
  const p=createCRMExperience(),c=p.cards[0];
