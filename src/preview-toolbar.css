@@ -15,7 +15,6 @@
 .co-preview-toolbar .co-preview-generate{color:var(--text-secondary);background:#f0f6ff}
 .co-preview-toolbar .co-preview-generate:hover:not(:disabled){background:#e5f0ff}
 .co-preview-toolbar .co-preview-generate:disabled{opacity:.6}
-.co-preview-actions .co-preview-tools{border-left:1px solid #e8eef6;padding-left:7px;gap:3px}
 .co-preview-changes-popover{position:absolute;top:calc(100% + 7px);right:12px;width:min(420px,calc(100% - 24px));max-height:min(540px,calc(100dvh - 210px));display:flex;flex-direction:column;border:1px solid #dfe8f3;border-radius:12px;background:#fff;box-shadow:0 12px 40px #263f6426,0 2px 8px #263f640a;outline:none;overflow:hidden;text-align:left}
 .co-preview-changes-header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:15px 17px 12px;border-bottom:1px solid #edf1f7;flex-shrink:0;background:#fbfcfe}
 .co-preview-changes-header strong{display:block;font-size:var(--font-size-body);font-weight:600;color:var(--text-secondary)}
@@ -199,5 +198,5 @@
 }
 .co-preview-no-changes { margin: 3px 0; color: var(--text-muted); font-size: var(--font-size-control); }
 @container preview-pane (max-width:520px){.co-preview-heading{gap:7px}.co-preview-toolbar .co-preview-tabs button{padding:5px 7px;gap:4px}.co-preview-actions{gap:3px}.co-preview-toolbar .co-preview-status>span{display:none}}
-@container preview-pane (max-width:410px){.co-preview-toolbar{padding:0 9px}.co-preview-toolbar .co-preview-generate>span{display:none}.co-preview-toolbar .co-preview-generate{width:27px;padding:3px}.co-preview-heading{gap:5px}.co-preview-actions .co-preview-tools{gap:0;padding-left:4px}.co-preview-actions .co-preview-tools button{width:23px}.co-preview-toolbar .co-preview-changes-trigger{padding:4px}.co-preview-changes-trigger>svg{display:none}}
+@container preview-pane (max-width:410px){.co-preview-toolbar{padding:0 9px}.co-preview-toolbar .co-preview-generate>span{display:none}.co-preview-toolbar .co-preview-generate{width:27px;padding:3px}.co-preview-heading{gap:5px}.co-preview-toolbar .co-preview-changes-trigger{padding:4px}.co-preview-changes-trigger>svg{display:none}}
 @container preview-pane (max-width:340px){.co-preview-toolbar .co-preview-status{display:none}.co-preview-toolbar .co-preview-tabs button{width:27px;padding:4px;gap:0;font-size:0}.co-preview-toolbar .co-preview-changes-trigger>span{display:none}.co-preview-toolbar .co-preview-changes-trigger>svg{display:block}.co-preview-toolbar .co-preview-changes-trigger{gap:3px}.co-preview-toolbar{gap:4px}}

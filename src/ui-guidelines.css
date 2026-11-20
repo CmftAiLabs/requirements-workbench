@@ -128,7 +128,6 @@ input[type="checkbox"] { accent-color:var(--brand-primary); }
 .co-preview-toolbar { height:auto; min-height:56px; flex-wrap:wrap; padding:10px 16px; border-color:var(--border-base); }
 .co-preview-tabs button { font-size:var(--font-size-control); color:var(--text-secondary); }
 .co-preview-tabs button.active { color:var(--brand-primary); background:var(--brand-tint); }
-.co-preview-tools button { width:32px; min-height:32px; color:var(--text-secondary); }
 .co-preview-caption { flex-wrap:wrap; gap:6px 12px; padding:8px 16px; font-size:var(--font-size-meta); color:var(--text-secondary); }
 .co-preview-caption small { font-size:var(--font-size-meta); }
 .co-preview-footer { font-size:var(--font-size-meta); color:var(--text-muted); }
