@@ -21,7 +21,7 @@ test('业务成员可发送附件，保留作者及材料来源；重试不重�
  const sent=appendMaterialMessage(p,c.id,'business-operations',input,[material]);
  assert.equal(sent.message.participantId,'business-operations');assert.deepEqual(sent.message.materialIds,[material.id]);
  assert.equal(material.sourceConversation?.messageId,sent.message.id);assert.match(material.location,/赵凯/);
- assert.deepEqual(formal(p),before);assert.equal(discussionRequest(p,c),undefined);
+ assert.deepEqual(formal(p),before);assert.equal(discussionRequest(p,c),sent.message);
  const count=c.messages.length,materials=p.materials.length;
  assert.equal(appendMaterialMessage(p,c.id,'business-operations',input,[textMaterial('再传.md','重复的传输')]).created,false);
  assert.equal(c.messages.length,count);assert.equal(p.materials.length,materials);
@@ -32,6 +32,7 @@ test('纯回答不产生正式需求，独立新需求只进入可编辑草稿�
  const p=createCRMExperience(),c=p.cards[1],material=textMaterial('会务补充.md','支持企业提交到达时间。提醒失败不影响记录。');
  const sent=appendMaterialMessage(p,c.id,'business-operations',{text:'分析附件',clientMessageId:randomUUID()},[material]);
  const before=formal(p);
+ assert.throws(()=>validateConversationRoute({handling:{mode:'quiet',trigger:'none',reason:''},reply:'',clarifiesCurrent:false,evidence:[],cards:[]},p,c,[material],true),/总结可读内容/);
  assert.throws(()=>validateConversationRoute({reply:'修改当前需求',clarifiesCurrent:true,evidence:[],cards:[]},p,c,[material],true),/真实依据/);
  assert.throws(()=>validateConversationRoute({reply:'据材料回答',clarifiesCurrent:false,evidence:[{materialId:material.id,quote:'伪造的规定'}],cards:[]},p,c,[material],true),/原文/);
  const answer=validateConversationRoute({reply:'到达时间是企业提供的到场意向，不代表场地预订。',clarifiesCurrent:false,evidence:[],cards:[]},p,c,[material],true);

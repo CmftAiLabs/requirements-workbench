@@ -18,7 +18,6 @@ import {ReminderMenu} from './reminder-menu';
 import type {DiscussionReminder} from '../shared/discussion-reminders';
 import {isOverview, concreteCards, outlineGaps, excludedRequirements} from '../shared/intake-policy';
 import {initialCommunicationCard} from '../shared/card-organization';
-import {mentionsAgent} from '../shared/agent-mention';
 import './intake-integration.css';
 import {WorkspaceModal as Modal} from './workspace-ui';
 import {applyStatePatches,type WorkspaceSync} from '../shared/workspace-sync';
@@ -120,7 +119,7 @@ export default function App(){
  };
  const startJob=(path:string,payload:unknown,message:string)=>run(()=>api(`/api/projects/${p.id}/${path}`,payload),message);
  const postMaterials=(id:string,data:FormData)=>run(()=>api(`/api/projects/${p.id}/cards/${id}/material-messages`,data),
-   boot.config.modelConfigured&&mentionsAgent(String(data.get('text')||''))?'材料已发送，需求助手将结合材料回复':'材料已发送');
+   boot.config.modelConfigured?'材料已发送，需求助手将整理摘要':'材料已发送');
  return <div className="app-shell co-shell">
   <a className="skip-link" href="#workspace-main">跳到主要内容</a>
   <header className="workspace-topbar">

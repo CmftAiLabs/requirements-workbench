@@ -61,11 +61,12 @@ export function createDiscussionQueue({enabled,analyze=analyzeDiscussion,suggest
   if(!card)return;
   const assessment=resumeId?retryable(card,resumeId):undefined;
   if(resumeId&&!assessment)throw new Error('该评估不可重试。');
-  if(!requestFor(project,card,force,assessment?.sourceMessageId))return;
+  const request=requestFor(project,card,force,assessment?.sourceMessageId);
+  if(!request)return;
   const existing=(await listJobs(projectId)).find(j=>j.kind==='listen'&&j.cardId===cardId&&['queued','running'].includes(j.status));
   if(existing)return existing;
   let job:Job;
-  try{job=await newJob(projectId,'listen','正在处理 @Agent 请求',cardId);}catch(error){if(error instanceof ConflictError)return;throw error;}
+  try{job=await newJob(projectId,'listen',request.materialIds?.length?'正在读取附件':'正在处理 @Agent 请求',cardId);}catch(error){if(error instanceof ConflictError)return;throw error;}
   void process(job,force,resumeId).catch(()=>console.error('讨论任务状态保存失败，请检查本地数据库。'));
   return job;
  }
@@ -77,7 +78,7 @@ export function createDiscussionQueue({enabled,analyze=analyzeDiscussion,suggest
    await delay();
    if(closed)return;
    job.status='running';await putJob(job);
-   // Coalesce tagged turns while keeping later ordinary chat out of the current request.
+   // Coalesce new mentions and attachments while keeping ordinary chat out of the current request.
    for(let pass=0;pass<4&&!closed;pass++){
     while(!closed&&(await listJobs(job.projectId)).some(j=>j.kind==='suggest'&&j.cardId===job.cardId&&['queued','running'].includes(j.status)))await delay();
     if(closed)return;
@@ -107,7 +108,7 @@ export function createDiscussionQueue({enabled,analyze=analyzeDiscussion,suggest
      summarize=priorRoute.clarifiesCurrent;
      if(!summarize)await mutateProject(p.id,next=>{const card=next.cards.find(x=>x.id===c.id)!;if(discussionBasis(next,currentAgentTurn(next,card,attempted))!==basis)throw new ConflictError('讨论已有更新');card.assistantCursor=attempted;});
     }else if(needsRouting){
-     job.label='正在阅读材料并判断如何帮助沟通';await putJob(job);
+     job.label='正在整理附件摘要';await putJob(job);
      const materials=attached.filter(m=>m.text.trim());
      const warnings=attachmentWarnings(attached);
      if(!materials.length)throw new SafeAIError(`未能从附件读到可用内容，请检查后重新上传。${warnings.slice(0,2).join('；')}`);
@@ -189,7 +190,10 @@ export function createDiscussionQueue({enabled,analyze=analyzeDiscussion,suggest
    job.status='failed';
    // Validation diagnostics are for bounded model repair, never user-facing job text.
    console.warn('讨论任务未完成', {jobId:job.id,category:error instanceof Error?error.name:'UnknownError',...(error instanceof SafeAIError?{reason:error.message.slice(0,1000)}:{})});
-   job.error=error instanceof SafeAIError&&error.code==='invalid_evidence'?'本轮建议的原文依据未核对通过，尚未改动需求。请补充相关业务原话后点击“整理讨论”重试。':job.label.includes('评估')?'本次评估未能完成，原消息和材料已保留，请按最新讨论重试。':'本轮回应或追问未能完成。讨论内容已保留，请按最新讨论重试。';
+   job.error=error instanceof SafeAIError&&error.code==='invalid_evidence'?'本轮建议的原文依据未核对通过，尚未改动需求。请补充相关业务原话后点击“整理讨论”重试。'
+    :job.label.includes('附件')?'附件分析未完成，原文件已保留，可以重新分析。'
+    :job.label.includes('评估')?'本次评估未能完成，原消息和材料已保留，请按最新讨论重试。'
+    :'本轮回应或追问未能完成。讨论内容已保留，请按最新讨论重试。';
   }finally{
    if(closed){job.status='failed';job.error='服务已重启，可以继续讨论或重新整理。';}
    const assessmentProject=await getDiscussionView(job.projectId,job.cardId!);

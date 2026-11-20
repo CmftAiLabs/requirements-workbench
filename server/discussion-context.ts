@@ -2,12 +2,12 @@ import {isWithdrawnAnswer} from '../shared/question-lifecycle';
 import {discussionRequest} from '../shared/discussion';
 import type {Card,Project} from '../shared/types';
 
-// A tagged turn keeps its original topic even if unrelated chat arrives while
-// the request is queued. Prior conversation remains available as evidence.
+// A mention or attachment keeps its original topic even if ordinary chat
+// arrives while the request is queued. Earlier conversation remains evidence.
 export function currentAgentTurn(project:Project,card:Card,requestId:string){
  const source=discussionRequest(project,card,true)?.id??requestId;
  const end=card.messages.findIndex(message=>message.id===source);
- if(end<0)throw new Error('找不到本轮 @Agent 消息，请重新发起。');
+ if(end<0)throw new Error('找不到本轮请求的消息，请重新发起。');
  const messages=card.messages.filter((message,index)=>index<=end||message.role==='agent');
  return messages.length===card.messages.length?card:{...card,messages};
 }

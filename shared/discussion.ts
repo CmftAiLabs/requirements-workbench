@@ -21,7 +21,8 @@ export function discussionRequest(project:Project,card:Card,retry=false):Message
  const cursor=retry?-1:card.messages.findIndex(message=>message.id===card.assistantCursor);
  const approvedAt=Object.values(card.approvals).map(approval=>approval.createdAt).sort().at(-1);
  return card.messages.findLast((message,index)=>index>cursor&&message.role!=='agent'&&
-  (message.kind!=='change'||message.accepted)&&(!approvedAt||message.createdAt>=approvedAt)&&mentionsAgent(message.text));
+  (message.kind!=='change'||message.accepted)&&(!approvedAt||message.createdAt>=approvedAt)&&
+  (Boolean(message.materialIds?.length)||mentionsAgent(message.text)));
 }
 // Changes to people’s decisions while a model is running invalidate its result too.
 export function discussionBasis(project:Project,card:Card){

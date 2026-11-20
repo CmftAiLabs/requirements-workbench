@@ -119,7 +119,7 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
  const send=async()=>{if(!c||!text.trim()||policy('discuss')||sending.current||composing.current)return;const value=text.trim(),at=context.current,id=c.id;sending.current=true;try{const key=JSON.stringify([at,c.revision,c.round,value,replyTo]);if(pendingMessage.current?.key!==key)pendingMessage.current={key,id:crypto.randomUUID()};const okay=await mutate({type:'message',cardId:id,text:value,baseRevision:c.revision,baseRound:c.round,clientMessageId:pendingMessage.current.id,...(replyTo?{replyTo}:{})},p.stamp,'消息已发送');if(okay){pendingMessage.current=undefined;clearDraft();}}finally{sending.current=false;}};
  const draft=(value:string)=>{setText(value);input.current?.focus();};
  const answerAgent=(questionId:string,value=text)=>{setReplyTo(questionId);draft(mentionAgent(value));};
- const startAgent=async()=>{if(!c||policy('suggest'))return;setHint('');if(pendingAttachmentMessages(c).length)draft(mentionAgent(text.trim()||'请结合当前讨论分析刚才的材料。'));else if(s?.changes.length)await generateDemo(c.id);else await suggest(c.id);};
+ const startAgent=async()=>{if(!c||policy('suggest'))return;setHint('');if(pendingAttachmentMessages(c).length)await resumeDiscussion(c.id);else if(s?.changes.length)await generateDemo(c.id);else await suggest(c.id);};
  const adopt=async()=>{
   if(!c||!s||!presentation.actionable||policy(reviewOperation))return;
   if(productProposal){

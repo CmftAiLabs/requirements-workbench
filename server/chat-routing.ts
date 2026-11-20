@@ -25,6 +25,7 @@ export interface ConversationRoute {question?:DiscussionAnalysis['question'];han
 
 export function validateConversationRoute(raw:unknown,project:Project,card:Card,materials:Material[],allowNewCards:boolean):ConversationRoute{
  const parsed=routeSchema.parse(raw);
+ if(allowNewCards&&parsed.handling?.mode==='quiet')throw new SafeAIError('收到新附件，请在 reply 总结可读内容。');
  if(parsed.handling?.mode==='deep'){parsed.reply='';parsed.clarifiesCurrent=false;parsed.cards=[];parsed.question=null;}
  if(parsed.handling?.mode==='quiet'){parsed.reply='';parsed.clarifiesCurrent=false;parsed.cards=[];parsed.question=null;}
  if(!parsed.reply&&(!parsed.handling||parsed.handling.mode==='direct'))throw new SafeAIError('直接回应不能为空。');
@@ -51,6 +52,7 @@ export async function routeConversation(project:Project,card:Card,materials:Mate
  const hasAttachments=sourceMessageIds.length>0;
  return runAnalysis('understand-conversation-materials',materials,card,()=>`${alreadyAssessed?'本轮已完成深入评估，现在仅处理附件中的新卡候选及明确的当前卡补充。handling.mode必须为direct，不重复评估，不生成新的追问。':discussionRoutingRules}
 任务：理解用户在需求沟通群中的这轮发言和所附材料，决定怎样帮助大家。不是每次都要创建或修改需求。
+${hasAttachments?'收到新附件即需处理。只有附件或仅说明补充材料时，先用简短摘要给出文件的关键内容，再指出与当前需求的关联或待核对事项。用户附带具体问题时优先回答，并带上相关材料要点。有可读内容时不能返回 quiet。':''}
 普通回应只缺一个关键事实时，可在question返回一个定向问题（field、question、role、participantId、options），2—4个不同业务方案；没有必要时为null，不能重复已回答的问题。question非空时clarifiesCurrent=false，reply只解释背景，不重复问题。
 先直接、简洁回答用户。reply 用自然中文概括材料与当前讨论的关系、明确事实与未决点，不超过三小段，不输出技术过程。可同时做以下两项建议，也可都不做、只回应问题：
 1. clarifiesCurrent=true：附件或本轮人类发言对当前卡的范围、功能、权限、异常等提供了新的明确规则或冲突，需要整理字段修改建议。只是解释术语、汇总已有内容、确认收到、咨询一个问题时 false。没有依据不能强行改需求。设为 true 时 evidence 至少引用一条真实材料或人类消息连续原文。真正的字段建议由后续流程生成，这一步不写入字段。

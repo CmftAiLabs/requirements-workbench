@@ -45,7 +45,7 @@ export function ChatComposer({files,setFiles,clearDraft,assistantAvailable=true,
   <div className="co-input-box">
    {reply&&<div className="co-replying"><span className="co-replying-label">正在回答</span><span className="co-replying-text" title={reply}>{reply}</span><button type="button" aria-label="取消定向回复" onClick={clearReply}><X size={12}/></button></div>}
    {!!files.length&&<div className="co-input-files">{files.map((file,index)=><span className="co-file-chip" key={`${file.name}:${index}`}><FileText size={14}/><span title={file.name}>{file.name}</span><button type="button" disabled={uploading} aria-label={`移除附件：${file.name}`} onClick={()=>{setFiles(files.filter((_,i)=>i!==index));requestId.current='';}}><X size={12}/></button></span>)}</div>}
-   <textarea ref={inputRef} aria-label="沟通消息" placeholder={assistantAvailable?'输入消息或添加材料，需要助手回复时 @Agent':'输入消息或添加材料'} value={text} disabled={!!disabledReason||uploading} maxLength={5000}
+   <textarea ref={inputRef} aria-label="沟通消息" placeholder={assistantAvailable?'文字提问请 @Agent，附件发送后自动分析':'输入消息或添加材料'} value={text} disabled={!!disabledReason||uploading} maxLength={5000}
     onChange={e=>{setText(e.target.value);requestId.current='';}}
     onPaste={e=>{if(e.clipboardData.files.length){e.preventDefault();add(e.clipboardData.files);}}}
     onCompositionStart={()=>{composing.current=true;}} onCompositionEnd={()=>{composing.current=false;}}

@@ -24,7 +24,7 @@ import {createCRMExperience,applyCRMExampleConclusion} from './experience.js';
 import {workspacePRD,prdWord,demoZip} from './workspace-export.js';
 import {buildDemoHTML} from '../shared/project-demo.ts';
 import {actionRequest,materialRequest,extractionRequest,refinementRequest} from './validation.js';
-import {ROLES,type Role,type Job,type Action,type Material,type ArchiveEntry} from '../shared/types.js';
+import {ROLES,type Role,type Job,type Action,type Material,type ArchiveEntry,type Message} from '../shared/types.js';
 import {getChatDisabledReason} from '../shared/chat-policy.js';
 import {createDemoQueue,reconcileDemo} from './demo-jobs.ts';
 import {demoView,demoArtifactHTML,generatedDemoZip} from './demo-builder.ts';
@@ -275,8 +275,11 @@ export async function buildApp(){
   }
   const input=z.object({text:z.string().trim().max(5000).default(''),replyTo:z.string().min(1).max(120).optional(),clientMessageId:z.string().uuid()}).strict().parse(fields);
   if(!files.length)throw new Error('请先添加材料。');
+  const analyzeAttachment=async(message:Message)=>{
+   if(message.materialIds?.length)await discussion.enqueue(id,cardId!).catch(()=>console.error('材料消息已保存，附件分析暂未排队，可重试。'));
+  };
   const duplicate=card!.messages.find(m=>m.clientMessageId===input.clientMessageId);
-  if(duplicate){if(duplicate.participantId!==person.id)throw new Error('这条材料消息属于其他参与人员。');if(mentionsAgent(duplicate.text))await discussion.enqueue(id,cardId!);return {messageId:duplicate.id,duplicate:true};}
+  if(duplicate){if(duplicate.participantId!==person.id)throw new Error('这条材料消息属于其他参与人员。');await analyzeAttachment(duplicate);return {messageId:duplicate.id,duplicate:true};}
   const prepared:Material[]=[];let saved=false;
   try{
    for(const file of files)prepared.push(await prepareUpload(file.name,file.buffer));
@@ -285,7 +288,7 @@ export async function buildApp(){
    if(saved)for(const material of prepared.filter(m=>m.status==='处理中')){
     try{await startMaterialProcessing(id,material)}catch(error){await markMaterialFailed(id,material.id,error)}
    }
-   if(mentionsAgent(result.message.text))await discussion.enqueue(id,cardId!).catch(()=>console.error('材料消息已保存，@Agent 请求暂未排队，可重试。'));
+   await analyzeAttachment(result.message);
    return {messageId:result.message.id,duplicate:!result.created};
   }finally{
    if(!saved)await Promise.all(prepared.filter(m=>m.filePath).map(m=>rm(path.join(config.dataDir,m.filePath!)).catch(()=>{})));
@@ -295,7 +298,7 @@ export async function buildApp(){
   const {id,cardId}=params(req),p=await getProject(id),card=p.cards.find(c=>c.id===cardId);
   const disabled=attachmentDisabledReason(p,card);if(disabled)throw new Error(disabled);
   const {assessmentId}=z.object({assessmentId:z.string().min(1).optional()}).parse(req.body||{});
-  if(!assessmentId&&!discussionRequest(p,card!,true))return {message:'请在沟通消息中 @Agent 后发送。'};
+  if(!assessmentId&&!discussionRequest(p,card!,true))return {message:'请发送附件，或在文字消息中 @Agent。'};
   const materials=conversationMaterials(p,pendingAttachmentMessages(card!).flatMap(m=>m.materialIds||[]));
   for(const material of materials.filter(m=>m.status==='待解析'&&m.error&&m.filePath&&!m.archiveEntries&&(isImageFile(m.name)||isArchiveFile(m.name)))){
    const {result}=await mutateProject(id,current=>{const target=current.materials.find(m=>m.id===material.id)!;if(target.status!=='待解析')return false;target.status='处理中';delete target.error;return true;});

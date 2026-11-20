@@ -135,7 +135,7 @@ test('暂缓不等于已回答：仍阻止整卡确认，能定向回复且不�
  assert.equal(q.status,'answered');assert.equal(q.answerMessageId,message.id);assert.equal(waitingQuestion(c)?.id,current.id);
 });
 
-test('必须明确 @Agent 才产生请求，普通回复、附件、关键词和相似名称不触发',()=>{
+test('纯文字必须明确 @Agent，普通回复、关键词和相似名称不触发',()=>{
  const {p,c,q}=asked();
  for(const text of ['不加','请帮我总结一下','按讨论更新原型并评估','@AgentX 请分析','邮箱是 ops@agent.example','访问 @agent.example']){
   applyAction(p,{type:'message',cardId:c.id,text,replyTo:q.id},'business');

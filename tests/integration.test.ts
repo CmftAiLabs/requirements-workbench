@@ -706,31 +706,31 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       current=await db.getProject(p.id);assert.deepEqual(current,before);
     });
 
-    await t.test('材料分析的回应、新卡和澄清三条路径独立，图片读取完成后才交给 Agent',async()=>{
+    await t.test('附件自动分析，可回应、建议新卡或澄清，图片读完才整理',async()=>{
       const {createDiscussionQueue}=await import('../server/discussion-jobs');
       const {appendMaterialMessage}=await import('../server/chat-messages');
       const {textMaterial}=await import('../server/materials');
       for(const mode of ['reply','new','clarify'] as const){
         const p=readyProject('材料路由 '+mode),c=p.cards[0],material=textMaterial('补充.md','支持企业提交到达时间。提醒失败不影响记录。');
-        appendMaterialMessage(p,c.id,'business-operations',{text:mode==='reply'?'补充文件。':'@Agent 请结合附件分析。',clientMessageId:randomUUID()},[material]);
+        const {message}=appendMaterialMessage(p,c.id,'business-operations',{text:mode==='new'?'@Agent 请结合附件分析。':'',clientMessageId:randomUUID()},[material]);
+        applyAction(p,{type:'message',cardId:c.id,text:'我在核对上面的附件。'},'pm','pm');
         if(mode==='reply'){material.status='处理中';material.text='';}
         await db.insertProject(p);let routes=0,suggestions=0,demos=0;
-        const queue=createDiscussionQueue({enabled:true,delayMs:2,analyze:async()=>{throw new Error('附件不应走盲目追问');},route:async(_p,_c,materials)=>{
+        const queue=createDiscussionQueue({enabled:true,delayMs:2,analyze:async()=>{throw new Error('附件不应走盲目追问');},route:async(_p,focused,materials)=>{
+          assert.equal(focused.messages.findLast(item=>item.role!=='agent')?.id,message.id);
           routes++;assert.equal(materials[0].text,'支持企业提交到达时间。提醒失败不影响记录。');
           return {reply:mode==='reply'?'这是对资料的说明，不需要更改需求。':mode==='new'?'建议核对独立新卡草稿。':'这份材料可以明确当前异常处理。',clarifiesCurrent:mode==='clarify',evidence:[{materialId:material.id,quote:'提醒失败不影响记录'}],relatedCardIds:[],cards:mode==='new'?[{key:'arrival',title:'企业到达信息登记',granularity:'具体',origin:'材料要求',rationale:'独立登记业务',coverageGaps:[],fields:{goal:'支持企业提交到达时间',scope:'待明确',flow:'待明确',permission:'待明确',exception:'待明确',data:'待明确',constraint:'待明确',quality:'待明确',acceptance:'待明确'},sourceIds:[material.id],assessment:'待澄清',issues:[],evidence:{goal:[{materialId:material.id,quote:'支持企业提交到达时间'}]}}]:[]};
         },suggest:async current=>{suggestions++;return {summary:'提醒异常规则待人工采纳。',issues:[],changes:[{field:'exception',before:current.fields.exception,after:'提醒失败不影响记录。',reason:'新附件补充异常规则',evidence:[{materialId:material.id,quote:'提醒失败不影响记录。'}]}]};},onSuggested:async()=>{demos++;}});
         try{
-          if(mode==='reply'){
-           assert.equal(await queue.enqueue(p.id,c.id),undefined);assert.equal((await db.listJobs(p.id)).length,0);
-           await db.mutateProject(p.id,next=>applyAction(next,{type:'message',cardId:c.id,text:'@Agent 请解释刚才发的文件。'},'business','business-operations'));
-          }
           const job=await queue.enqueue(p.id,c.id);
+          assert.ok(job);
           if(mode==='reply'){await new Promise(resolve=>setTimeout(resolve,20));assert.equal(routes,0);await db.mutateProject(p.id,next=>{const m=next.materials.find(m=>m.id===material.id)!;m.status='待整理';m.text='支持企业提交到达时间。提醒失败不影响记录。';});}
           assert.equal((await waitJob(p.id,job!.id)).status,'succeeded');
           const current=await db.getProject(p.id);assert.equal(routes,1);assert.equal(suggestions,mode==='clarify'?1:0);assert.equal(demos,mode==='clarify'?1:0);
           assert.equal(current.cards.length,p.cards.length);assert.deepEqual(current.cards[0].fields,c.fields);assert.deepEqual(current.cards[0].approvals,{});assert.equal(current.phase,p.phase);
           assert.equal(current.intakeBatches?.length||0,mode==='new'?1:0);assert.equal(current.cards[0].suggestion?.status,mode==='clarify'?'待决定':undefined);
-          assert.equal(current.cards[0].messages.filter(m=>m.materialReply).length,1);assert.equal(await queue.enqueue(p.id,c.id),undefined);
+          const replies=current.cards[0].messages.filter(m=>m.materialReply);
+          assert.equal(replies.length,1);assert.deepEqual(replies[0].materialReply?.sourceMessageIds,[message.id]);assert.equal(await queue.enqueue(p.id,c.id),undefined);
         }finally{queue.close();}
       }
     });
