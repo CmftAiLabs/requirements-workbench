@@ -10,7 +10,7 @@ import {DemoPreview,type DemoLocation} from './demo-preview';
 import {waitingQuestion,waitingLabel} from '../shared/discussion';
 import type {DiscussionReminder} from '../shared/discussion-reminders';
 import {useEffect,useId,useRef,useState,type CSSProperties,type ReactNode} from 'react';
-import {ArrowDown,ArrowLeft,ArrowRight,Check,CheckCheck,CheckCircle2,ChevronDown,ChevronRight,FileText,FolderOpen,Info,Layers3,ListChecks,LoaderCircle,Maximize2,MessageCircle,PanelLeftClose,PanelLeftOpen,Play,RotateCcw,Search,Send,SlidersHorizontal,Sparkles,Users,X} from 'lucide-react';
+import {ArrowDown,ArrowLeft,ArrowRight,Check,CheckCheck,CheckCircle2,ChevronRight,FileText,FolderOpen,Info,Layers3,ListChecks,LoaderCircle,Maximize2,MessageCircle,PanelLeftClose,PanelLeftOpen,Play,RotateCcw,Search,Send,SlidersHorizontal,Sparkles,Users,X} from 'lucide-react';
 import {FIELDS,ROLES,cardStatus,type Action,type Card,type FieldKey,type Job,type Project,type Role} from '../shared/types';
 import {getChatDisabledReason,type ChatOperation} from '../shared/chat-policy';
 import {resolutionDisabledReason} from '../shared/resolution-policy';
@@ -49,7 +49,8 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
  const [details,setDetails]=useState(false),[expanded,setExpanded]=useState(false),[collapsed,setCollapsed]=useState(false),[mobilePool,setMobilePool]=useState(false),[mobile,setMobile]=useState<'chat'|'preview'>('chat'),[reload,setReload]=useState(0),[ratio,setRatio]=useState(55),[adjust,setAdjust]=useState(false),[decisions,setDecisions]=useState<Partial<Record<FieldKey,'采纳'|'不采纳'>>>({}),[overrides,setOverrides]=useState<Partial<Record<FieldKey,string>>>({}),[reject,setReject]=useState(false),[reasonText,setReasonText]=useState(''),[hint,setHint]=useState('');
  const [demoLocation,setDemoLocation]=useState<DemoLocation>();
  const pendingNavigation=useRef<{cardId:string;text?:string;details?:boolean}|undefined>(undefined);
- const [organizing,setOrganizing]=useState(false),[organization,setOrganization]=useState(organizationOf(c||{})),[organizationStamp,setOrganizationStamp]=useState(p.stamp);
+ const cardOrganization=organizationOf(c||{});
+ const [organizing,setOrganizing]=useState(false),[organization,setOrganization]=useState(cardOrganization),[organizationStamp,setOrganizationStamp]=useState(p.stamp);
  const stream=useRef<HTMLDivElement>(null),input=useRef<HTMLTextAreaElement>(null),composing=useRef(false),sending=useRef(false),workspace=useRef<HTMLDivElement>(null),resizeCleanup=useRef<()=>void>(()=>{}),mobilePoolToggle=useRef<HTMLButtonElement>(null);
  const pendingMessage=useRef<{key:string;id:string}|undefined>(undefined);
  const context=useRef('');context.current=`${p.id}:${c?.id}:${participantId}`;
@@ -127,15 +128,18 @@ export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card
   <section className="co-chat">
    <header className="co-chat-header">
     <div>
-     <div className="co-chat-eyebrow">沟通群 {c?.granularity==='概要'?<><ChevronRight size={11}/>整体范围</>:c&&poolGroupingMode(p)==='modules'&&isNamedModule(organizationOf(c).module)?<><ChevronRight size={11}/>{organizationOf(c).module}</>:null}</div>
+     <div className="co-chat-eyebrow">沟通群 {c?.granularity==='概要'?<><ChevronRight size={11}/>整体范围</>:c&&poolGroupingMode(p)==='modules'&&isNamedModule(cardOrganization.module)?<><ChevronRight size={11}/>{cardOrganization.module}</>:null}</div>
      <h1 tabIndex={-1}>{c?.title||'一起把需求说清楚'}</h1>
      {c&&progress&&<div className="co-chat-card-actions">
       <button type="button" className="co-chat-progress" aria-haspopup="dialog" title={progress.step} data-pending={progress.pending} onClick={()=>setDetails(true)}>
        <ListChecks size={13} aria-hidden="true"/>待明确事项
       </button>
-      <button className="co-organization-trigger" aria-label="调整模块与沟通优先级" disabled={role!=='pm'||busy} title={role!=='pm'?'仅产品经理可调整模块和沟通优先级':organizationOf(c).reason} onClick={()=>{setOrganization({...organizationOf(c)});setOrganizationStamp(p.stamp);setOrganizing(true);}}>
-       <PriorityBadge value={organizationOf(c).priority}/><span>{role==='pm'?'调整安排':'产品安排'}</span><ChevronDown size={10}/>
-      </button>
+      <PriorityBadge value={cardOrganization.priority} title={cardOrganization.reason} disabled={busy}
+       onAdjust={role==='pm'?()=>{
+        setOrganization({...cardOrganization});
+        setOrganizationStamp(p.stamp);
+        setOrganizing(true);
+       }:undefined}/>
      </div>}
     </div>
     <div className="co-avatars">{PARTICIPANTS.map(person=><i key={person.id} title={`${person.name} · ${person.title}`} aria-label={`${person.name} · ${person.title}`}>{person.initial}</i>)}<i title="需求助手" aria-label="需求助手"><Sparkles size={14} aria-hidden="true"/></i></div>

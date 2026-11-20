@@ -1,10 +1,20 @@
 import {useId} from 'react';
+import {ChevronDown} from 'lucide-react';
 import {COMMUNICATION_PRIORITIES,type CardOrganization} from '../shared/types';
 import {priorityTone} from '../shared/card-organization';
 import './organization.css';
 
-export function PriorityBadge({value}:{value:CardOrganization['priority']}){
- return <span className={`organization-badge ${priorityTone(value)}`}><i/>{value}</span>;
+export function PriorityBadge({value, title, onAdjust, disabled}:{
+ value:CardOrganization['priority'];title?:string;onAdjust?:()=>void;disabled?:boolean;
+}){
+ const className=`organization-badge ${priorityTone(value)}`;
+ const label=<><i aria-hidden="true"/>{value}</>;
+ if(!onAdjust)return <span className={className} title={title}>{label}</span>;
+ return <button type="button" className={`${className} co-organization-trigger`}
+  aria-label={`${value}，调整沟通安排`} aria-haspopup="dialog" title={title||'调整沟通安排'}
+  disabled={disabled} onClick={onAdjust}>
+  {label}<ChevronDown size={11} aria-hidden="true"/>
+ </button>;
 }
 export function OrganizationFields({value,onChange,modules,disabled=false}:{value:CardOrganization;onChange:(value:CardOrganization)=>void;modules:string[];disabled?:boolean}){
  const list=useId();

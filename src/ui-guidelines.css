@@ -324,7 +324,7 @@ input[type="checkbox"] { accent-color:var(--brand-primary); }
   .co-workspace { --chat-header-height:64px; --mobile-switch-height:40px; }
   .co-chat-header { padding:8px 16px; }
   .co-chat-header h1 { font-size:var(--font-size-body); }
-  .co-chat-eyebrow, .co-chat-header .co-organization-trigger { display:none; }
+  .co-chat-eyebrow { display:none; }
   .co-messages { padding:4px 12px; }
   .co-mobile-switch { padding:3px 12px; }
   .co-composer { padding:4px 12px 8px; }
