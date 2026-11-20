@@ -10,6 +10,7 @@ import {ConversationThread} from './conversation-thread';
 import {CardHistory} from './card-history';
 import {DemoPreview,type DemoLocation} from './demo-preview';
 import {waitingQuestion,waitingLabel} from '../shared/discussion';
+import type {DiscussionReminder} from '../shared/discussion-reminders';
 import {useEffect,useId,useRef,useState,type CSSProperties,type ReactNode} from 'react';
 import {ArrowDown,ArrowLeft,ArrowRight,Check,CheckCheck,CheckCircle2,Crosshair,ChevronDown,ChevronRight,FileText,FolderOpen,Info,Layers3,LoaderCircle,Maximize2,MessageCircle,MoreHorizontal,PanelLeftClose,PanelLeftOpen,Play,RotateCcw,Search,Send,SlidersHorizontal,Sparkles,Users,X} from 'lucide-react';
 import {FIELDS,ROLES,cardStatus,type Action,type Card,type FieldKey,type Fields,type Job,type Project,type Role} from '../shared/types';
@@ -23,7 +24,7 @@ import {RequirementPool} from './requirement-pool';
 import {OrganizationFields,PriorityBadge} from './organization-fields';
 import {needsAttention,organizationOf,organizationModules,pinnedChats,poolGroupingMode,isNamedModule} from '../shared/card-organization';
 
-type Props={modelPicker?:ReactNode;project:Project;card?:Card;role:Role;participantId:ParticipantId;busy:boolean;jobs:Job[];modelConfigured:boolean;setCard:(id:string)=>void;mutate:(action:Action,stamp?:number,success?:string)=>Promise<boolean>;suggest:(id:string)=>Promise<boolean>;generateDemo:(id:string)=>Promise<boolean>;organize:()=>Promise<boolean>;sendMaterials:(id:string,data:FormData)=>Promise<boolean>;resumeDiscussion:(id:string,assessmentId?:string)=>Promise<boolean>;goMaterials:(id?:string)=>void;onManage:()=>void};
+type Props={reminderFocus?:DiscussionReminder;modelPicker?:ReactNode;project:Project;card?:Card;role:Role;participantId:ParticipantId;busy:boolean;jobs:Job[];modelConfigured:boolean;setCard:(id:string)=>void;mutate:(action:Action,stamp?:number,success?:string)=>Promise<boolean>;suggest:(id:string)=>Promise<boolean>;generateDemo:(id:string)=>Promise<boolean>;organize:()=>Promise<boolean>;sendMaterials:(id:string,data:FormData)=>Promise<boolean>;resumeDiscussion:(id:string,assessmentId?:string)=>Promise<boolean>;goMaterials:(id?:string)=>void;onManage:()=>void};
 const time=(s:string)=>new Date(s).toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit'});
 const passed=(c:Card,role:'pm'|'business')=>c.approvals[role]?.result==='通过'&&c.approvals[role]?.revision===c.revision&&c.approvals[role]?.round===c.round;
 const unknown=hasUnresolvedContent;
@@ -41,7 +42,7 @@ const summaryPreview=(value:string)=>{
  return end>=35?start.slice(0,end+1):start.trimEnd()+'…';
 };
 
-export function CollaborationWorkspace({modelPicker,project:p,card:c,role,participantId,busy,jobs,modelConfigured,setCard,mutate,suggest,generateDemo,organize,sendMaterials,resumeDiscussion,goMaterials,onManage}:Props){
+export function CollaborationWorkspace({reminderFocus,modelPicker,project:p,card:c,role,participantId,busy,jobs,modelConfigured,setCard,mutate,suggest,generateDemo,organize,sendMaterials,resumeDiscussion,goMaterials,onManage}:Props){
  const actionRecipientId=useId();
  const {value:conversationDraft,setText,setReplyTo,setFiles,clear:clearDraft}=useConversationDraft(`${p.id}:${c?.id}:${participantId}`);
  const {text,replyTo,files}=conversationDraft;
@@ -55,7 +56,26 @@ export function CollaborationWorkspace({modelPicker,project:p,card:c,role,partic
  const s=c?liveSuggestion(c):undefined;
  useEffect(()=>{const next=pendingNavigation.current?.cardId===c?.id?pendingNavigation.current:undefined;if(next?.text)setText(next.text);setHint('');setDetails(!!next?.details);setDemoLocation(undefined);setAdjust(false);setReject(false);setEdit(false);setReload(0);setOrganizing(false);pendingNavigation.current=undefined;if(next?.text)input.current?.focus();},[p.id,c?.id]);
  useEffect(()=>{setDecisions(s?Object.fromEntries(s.changes.map(change=>[change.field,'采纳'])):{});setOverrides({});setAdjust(false);},[c?.id,s?.id]);
- useEffect(()=>{const el=stream.current;if(el)el.scrollTop=el.scrollHeight;},[c?.id,c?.messages.length,c?.followUps?.length,c?.assessments?.length,s?.id,c?.approvals.pm?.id,c?.approvals.business?.id]);
+ useEffect(()=>{
+  const el=stream.current;
+  if(el&&!el.contains(document.activeElement?.closest('[data-reminder-anchor]')??null))el.scrollTop=el.scrollHeight;
+ },[c?.id,c?.messages.length,c?.followUps?.length,c?.assessments?.length,s?.id,c?.approvals.pm?.id,c?.approvals.business?.id]);
+ useEffect(()=>{
+  if(reminderFocus?.projectId!==p.id||reminderFocus.cardId!==c?.id)return;
+  setMobile('chat');
+  setMobilePool(false);
+  setExpanded(false);
+  const frame=requestAnimationFrame(()=>{
+   const target=document.getElementById(reminderFocus.anchorId);
+   if(target&&stream.current?.contains(target)){
+    target.focus({preventScroll:true});
+    target.scrollIntoView({block:'nearest',behavior:'instant'});
+   }else{
+    workspace.current?.querySelector<HTMLElement>('.co-chat-header h1')?.focus({preventScroll:true});
+   }
+  });
+  return ()=>cancelAnimationFrame(frame);
+ },[reminderFocus,p.id,c?.id]);
  useEffect(()=>()=>resizeCleanup.current(),[]);
  useEffect(()=>{const query=window.matchMedia('(max-width:650px)');const closeWide=()=>{if(!query.matches)setMobilePool(false);};query.addEventListener('change',closeWide);return()=>query.removeEventListener('change',closeWide);},[]);
  useEffect(()=>{
@@ -100,12 +120,12 @@ export function CollaborationWorkspace({modelPicker,project:p,card:c,role,partic
  return <div className={`co-workspace ${collapsed?'pool-collapsed':''} ${mobilePool?'mobile-pool-open':''}`} ref={workspace} style={{'--chat-ratio':`${ratio}fr`,'--preview-ratio':`${100-ratio}fr`} as CSSProperties} data-mobile={mobile}>
   {mobilePool&&<button type="button" className="co-pool-backdrop" aria-label="关闭需求列表" tabIndex={-1} onClick={()=>setMobilePool(false)}/>}
   <RequirementPool mobileOpen={mobilePool} key={p.id} project={p} role={role} participantId={participantId} busy={busy} jobs={jobs} modelConfigured={modelConfigured} mutate={mutate} organize={organize} selectedId={c?.id} select={id=>{setCard(id);setMobilePool(false);}} collapsed={collapsed} toggle={()=>{if(window.matchMedia('(max-width:650px)').matches)setMobilePool(false);else setCollapsed(!collapsed);}} goMaterials={()=>goMaterials()}/>
-  <section className="co-chat"><header className="co-chat-header"><div><div className="co-chat-eyebrow">沟通群 {c?.granularity==='概要'?<><ChevronRight size={11}/>整体范围</>:c&&poolGroupingMode(p)==='modules'&&isNamedModule(organizationOf(c).module)?<><ChevronRight size={11}/>{organizationOf(c).module}</>:null}</div><h1>{c?.title||'一起把需求说清楚'}</h1>{c&&<button className="co-organization-trigger" aria-label="调整模块与沟通优先级" disabled={role!=='pm'||busy} title={role!=='pm'?'仅产品经理可调整模块和沟通优先级':organizationOf(c).reason} onClick={()=>{setOrganization({...organizationOf(c)});setOrganizationStamp(p.stamp);setOrganizing(true);}}><PriorityBadge value={organizationOf(c).priority}/><span>{role==='pm'?'调整安排':'产品安排'}</span><ChevronDown size={10}/></button>}</div><div className="co-header-people"><div className="co-avatars">{PARTICIPANTS.map(person=><i key={person.id} title={`${person.name} · ${person.title}`} aria-label={`${person.name} · ${person.title}`}>{person.initial}</i>)}<i title="需求助手" aria-label="需求助手"><Sparkles size={14} aria-hidden="true"/></i></div>{c&&<button aria-label="查看需求详情" title="查看需求详情" onClick={()=>setDetails(true)}><MoreHorizontal size={20}/></button>}</div></header><div className="co-mobile-switch"><button type="button" className="co-mobile-pool-toggle" ref={mobilePoolToggle} aria-expanded={mobilePool} aria-controls={`requirement-pool-${p.id}`} onClick={()=>{setCollapsed(false);setMobilePool(true);}}><PanelLeftOpen size={16}/>需求</button><button className={mobile==='chat'?'active':''} onClick={()=>setMobile('chat')}>沟通</button><button className={mobile==='preview'?'active':''} onClick={()=>setMobile('preview')}>原型预览</button></div>
+  <section className="co-chat"><header className="co-chat-header"><div><div className="co-chat-eyebrow">沟通群 {c?.granularity==='概要'?<><ChevronRight size={11}/>整体范围</>:c&&poolGroupingMode(p)==='modules'&&isNamedModule(organizationOf(c).module)?<><ChevronRight size={11}/>{organizationOf(c).module}</>:null}</div><h1 tabIndex={-1}>{c?.title||'一起把需求说清楚'}</h1>{c&&<button className="co-organization-trigger" aria-label="调整模块与沟通优先级" disabled={role!=='pm'||busy} title={role!=='pm'?'仅产品经理可调整模块和沟通优先级':organizationOf(c).reason} onClick={()=>{setOrganization({...organizationOf(c)});setOrganizationStamp(p.stamp);setOrganizing(true);}}><PriorityBadge value={organizationOf(c).priority}/><span>{role==='pm'?'调整安排':'产品安排'}</span><ChevronDown size={10}/></button>}</div><div className="co-header-people"><div className="co-avatars">{PARTICIPANTS.map(person=><i key={person.id} title={`${person.name} · ${person.title}`} aria-label={`${person.name} · ${person.title}`}>{person.initial}</i>)}<i title="需求助手" aria-label="需求助手"><Sparkles size={14} aria-hidden="true"/></i></div>{c&&<button aria-label="查看需求详情" title="查看需求详情" onClick={()=>setDetails(true)}><MoreHorizontal size={20}/></button>}</div></header><div className="co-mobile-switch"><button type="button" className="co-mobile-pool-toggle" ref={mobilePoolToggle} aria-expanded={mobilePool} aria-controls={`requirement-pool-${p.id}`} onClick={()=>{setCollapsed(false);setMobilePool(true);}}><PanelLeftOpen size={16}/>需求</button><button className={mobile==='chat'?'active':''} onClick={()=>setMobile('chat')}>沟通</button><button className={mobile==='preview'?'active':''} onClick={()=>setMobile('preview')}>原型预览</button></div>
   {waiting&&<div className="co-waiting" role="status"><span><strong>{waitingLabel(c!,role,participantId)}</strong> · {waiting.question}</span>{isQuestionRecipient(waiting,role,participantId)&&<button onClick={()=>{setReplyTo(waiting.id);input.current?.focus();}}>我来补充</button>}</div>}
   <div className="co-messages" ref={stream}>{c?<><div className="co-topic-note"><span><MessageCircle size={13}/>围绕这项需求沟通</span><p>{c.fields.goal}</p>{c.granularity==='概要'&&<button onClick={()=>goMaterials(c.intakeDraftId)}>到材料箱继续细化 <ArrowRight size={12}/></button>}{!c.included&&<p>本期不纳入：{c.exclusionReason}</p>}</div><ConversationThread retryAssessment={assessmentId=>void resumeDiscussion(c.id,assessmentId)} assessmentBusy={running||!modelConfigured} scrollRef={stream} project={p} openDraft={goMaterials} openCard={setCard} card={c} role={role} participantId={participantId} busy={busy} onAnswer={(question,value)=>{setReplyTo(question.id);draft(value);}}/>{!c.messages.length&&<div className="co-quiet"><Sparkles size={21}/><h3>从一个具体问题开始</h3><p>说说业务场景、不确定的规则，或直接 @Agent。</p></div>}
   {running&&!c.assessments?.some(a=>a.jobId===latestJob?.id&&a.status==='running')&&<article className="co-message agent"><span className="co-avatar agent"><Sparkles size={17} aria-hidden="true"/></span><div className="co-message-content"><div className="co-message-meta"><strong>需求助手</strong><span>Agent</span></div><div className="co-agent-working"><LoaderCircle className="spin" size={15}/><span>{latestJob?.label||'正在分析本轮讨论'}<small>新卡和修改建议都由人核对，你可以继续发言。</small></span></div></div></article>}
   {latestJob?.status==='failed'&&!c.assessments?.some(a=>a.jobId===latestJob.id&&a.status==='failed')&&!running&&(!c.suggestion||latestJob.createdAt>c.suggestion.createdAt)&&<div className="co-inline-error"><p>{latestJob.error||'本轮分析未完成，请重试。'}</p><button disabled={!!policy('suggest')} title={policy('suggest')} onClick={()=>void (latestJob?.kind==='listen'?resumeDiscussion(c.id):startAgent())}>重新分析</button></div>}
-  {s&&!running&&<article className="co-message agent"><span className="co-avatar agent"><Sparkles size={17} aria-hidden="true"/></span><div className="co-message-content"><div className="co-message-meta"><strong>需求助手</strong><span>Agent</span><time>{time(s.createdAt)}</time></div><div className="co-conclusion">
+  {s&&!running&&<article className="co-message agent"><span className="co-avatar agent"><Sparkles size={17} aria-hidden="true"/></span><div className="co-message-content"><div className="co-message-meta"><strong>需求助手</strong><span>Agent</span><time>{time(s.createdAt)}</time></div><div className="co-conclusion" id={`suggestion-${s.id}`} tabIndex={-1} data-reminder-anchor>
   <div className="co-conclusion-heading">
    <Sparkles size={14} aria-hidden="true"/>
    <strong>{s.origin==='example'?'参考结论':presentation.actionable?'本轮建议':'本轮回应'}</strong>
@@ -120,7 +140,7 @@ export function CollaborationWorkspace({modelPicker,project:p,card:c,role,partic
   </div>}</div></div></article>}
   {!s&&c.suggestion?.status==='已失效'&&!running&&<div className="co-inline-note">讨论已有补充，上一轮建议已失效。<button disabled={!!policy('suggest')} onClick={()=>void startAgent()}>按最新讨论更新原型</button></div>}
   {!s&&!running&&!waiting&&c.included&&c.granularity!=='概要'&&(confirmed||passed(c,'pm')||cardStatus(c)==='可确认')&&
-   <div className={`co-confirmation ${confirmed?'complete':''}`}>
+   <div className={`co-confirmation ${confirmed?'complete':''}`} id={`confirmation-${c.id}`} tabIndex={-1} data-reminder-anchor>
     {confirmed?<><CheckCircle2 size={20}/><div><strong>这项需求已确认</strong><p>产品与业务已确认同一版结论，可以继续下一项需求。</p></div></>:passed(c,'pm')?<>
      <span className="co-avatar business" aria-hidden="true">{businessOwner.initial}</span>
      <div>

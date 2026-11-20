@@ -73,7 +73,7 @@ export type Action =
  | {type:'acceptChange';cardId:string;messageId:string;field:FieldKey}
  | {type:'submitReview'}
  | {type:'review';result:'通过'|'要求修改';comment:string};
-export interface Bootstrap {participantId:ParticipantId;projects:{id:string;name:string}[];project:Project;role:Role;jobs:Job[];config:{model:string;modelConfigured:boolean;knowledgeConfigured:boolean;teammateConfigured:boolean;localOnly:boolean}}
+export interface Bootstrap {participantId:ParticipantId;projects:{id:string;name:string}[];project:Project;role:Role;jobs:Job[];reminders?:import('./discussion-reminders').DiscussionReminder[];config:{model:string;modelConfigured:boolean;knowledgeConfigured:boolean;teammateConfigured:boolean;localOnly:boolean}}
 
 export function cardStatus(card:Card):CardStatus {
  if(!card.included)return '本期不纳入';

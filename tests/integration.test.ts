@@ -168,6 +168,73 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       assert.equal((await app!.inject({url:'/api/metrics',headers:{host:'127.0.0.1',cookie:cookies.business}})).statusCode,403);const metrics=await app!.inject({url:'/api/metrics',headers:{host:'127.0.0.1',cookie:cookies.pm}});assert.equal(metrics.statusCode,200);assert.ok(metrics.json().series.some((s:{name:string})=>s.name==='sync.delta'));
     });
 
+    await t.test('顶栏待办按身份跨项目同步，回答、采纳和确认后随当前状态更新',async()=>{
+      const {attachDiscussion}=await import('../server/discussion');
+      const {discussionBasis}=await import('../shared/discussion');
+      const {applyStatePatches}=await import('../shared/workspace-sync');
+      const viewing=createProject('待办验收 · 当前项目');
+      const proposed=readyProject('待办验收 · 另一项目'),proposedCard=proposed.cards[0];
+      attachSuggestion(proposed,proposedCard.id,{summary:'补充采购信息',issues:[],changes:[
+        {field:'flow',before:proposedCard.fields.flow,after:proposedCard.fields.flow+' 保存后提示单号。',reason:'便于核对',evidence:[]},
+      ]},proposedCard.revision,0);
+      const questioned=readyProject('待办验收 · 指定业务回复'),questionedCard=questioned.cards[0];
+      applyAction(questioned,{type:'message',cardId:questionedCard.id,text:'场地变更是否需要向申请人说明？'},'pm','pm');
+      attachDiscussion(questioned,questionedCard.id,{answer:null,summarize:false,question:{
+        field:'flow',question:'赵凯，场地变更时是否通知申请人？',options:['发站内通知','联系申请人'],role:'business',participantId:'business-operations',
+      }},discussionBasis(questioned,questionedCard));
+      const questionId=questionedCard.followUps![0].id;
+      for(const project of [viewing,proposed,questioned])await db.insertProject(project);
+      const ids=new Set([proposed.id,questioned.id]);
+      const forProjects=(value:import('../shared/types').Bootstrap)=>value.reminders!.filter(item=>ids.has(item.projectId));
+      const syncURL='/api/workspace/sync?projectId='+viewing.id;
+      const sync=async(cookie:string,cursor?:string)=>{
+        const response=await app!.inject({url:syncURL+(cursor?'&cursor='+cursor:''),headers:{host:'127.0.0.1',cookie}});
+        assert.equal(response.statusCode,200,response.body);
+        return response.json();
+      };
+      const session=async(participantId:string)=>{
+        const response=await app!.inject({method:'POST',url:'/api/session',headers:{host:'127.0.0.1',origin:'http://127.0.0.1'},payload:{participantId}});
+        assert.equal(response.statusCode,200);
+        return ([] as string[]).concat(response.headers['set-cookie']!).map(cookie=>cookie.split(';')[0]).join('; ');
+      };
+      const operations=await session('business-operations'),sales=await session('business-sales');
+      const pmStart=await sync(cookies.pm);
+      assert.equal(pmStart.value.project.id,viewing.id);
+      assert.deepEqual(forProjects(pmStart.value).map(item=>[item.projectId,item.kind,item.anchorId]),
+        [[proposed.id,'adopt','suggestion-'+proposedCard.suggestion!.id]]);
+      const opsStart=await sync(operations,pmStart.cursor);
+      assert.equal(opsStart.kind,'snapshot');
+      assert.deepEqual(forProjects(opsStart.value).map(item=>[item.projectId,item.kind,item.anchorId]),
+        [[questioned.id,'reply','question-'+questionId]]);
+      assert.deepEqual(forProjects((await sync(sales)).value),[]);
+      const businessStart=await sync(cookies.business);
+      assert.deepEqual(forProjects(businessStart.value),[]);
+      assert.equal((await sync(cookies.pm,pmStart.cursor)).kind,'unchanged');
+
+      const saved=await act(proposed,{type:'adoptConclusion',cardId:proposedCard.id,suggestionId:proposedCard.suggestion!.id,decisions:{flow:'采纳'}});
+      assert.equal(saved.statusCode,200,saved.body);
+      const update=await sync(cookies.business,businessStart.cursor);
+      assert.equal(update.kind,'delta');
+      const businessAfter=applyStatePatches(businessStart.value,update.patches);
+      assert.deepEqual(forProjects(businessAfter).map(item=>[item.projectId,item.kind,item.anchorId]),
+        [[proposed.id,'confirm','confirmation-'+proposedCard.id]]);
+      assert.deepEqual(forProjects((await sync(cookies.pm)).value),[]);
+      const confirmed=await act(saved.json(),{type:'businessConfirm',cardId:proposedCard.id,result:'通过',comment:'人工核对通过'},'business');
+      assert.equal(confirmed.statusCode,200,confirmed.body);
+      assert.deepEqual(forProjects((await sync(cookies.business)).value),[]);
+
+      await db.mutateProject(questioned.id,current=>{
+        const answer='场地变更时发站内通知给申请人。';
+        applyAction(current,{type:'message',cardId:questionedCard.id,text:answer,replyTo:questionId},'business','business-operations');
+        const card=current.cards[0];
+        attachDiscussion(current,card.id,{question:null,summarize:false,answer:{questionId,messageId:card.messages.at(-1)!.id,quote:answer}},discussionBasis(current,card));
+        assert.equal(card.followUps![0].status,'answered');
+      });
+      const opsAfter=await sync(operations,opsStart.cursor);
+      assert.equal(opsAfter.kind,'delta');
+      assert.deepEqual(forProjects(applyStatePatches(opsStart.value,opsAfter.patches)),[]);
+    });
+
     await t.test('讨论热写入保持确认与正文，重启后可读，后续领域写入原子合并历史',async()=>{
       const p=readyProject('热讨论持久化'),c=p.cards[0];applyAction(p,{type:'pmConfirm',cardId:c.id},'pm');applyAction(p,{type:'businessConfirm',cardId:c.id,result:'通过',comment:'合成确认'},'business');attachSuggestion(p,c.id,{summary:'待决定建议',issues:[],changes:[{field:'flow',before:c.fields.flow,after:c.fields.flow+' 补充方案',reason:'合成',evidence:[]}]},c.revision,c.messages.length);await db.insertProject(p);
       const original=structuredClone({fields:c.fields,approvals:c.approvals,phase:p.phase,version:p.version});

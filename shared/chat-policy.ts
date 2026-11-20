@@ -7,7 +7,7 @@ import {isNoopSuggestion} from './conclusion-presentation';
 
 export type ChatOperation = 'discuss' | 'proposeChange' | 'addBlocker' | 'acceptChange' | 'editCard' | 'applySuggestion' | 'suggest' | 'resolveBlocker' | 'pmConfirm' | 'businessConfirm' | 'businessReject' | 'businessDefer';
 export interface ChatPolicyContext {
-  project: Project;
+  project: Pick<Project,'deliveries'>;
   card: Card;
   role: Role;
   participantId?: ParticipantId;

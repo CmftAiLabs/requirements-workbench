@@ -77,7 +77,11 @@ export async function initStore(){
   await client.query('COMMIT');
  }catch(error){await client.query('ROLLBACK');throw error}finally{client.release()}
 }
-export async function listProjects(){return (await pool.query(`SELECT id,view_name AS name FROM projects ORDER BY created_at ASC`)).rows as {id:string;name:string}[]}
+export interface WorkspaceProjectVersion {id:string;name:string;stamp:string}
+export async function listWorkspaceProjectVersions(){
+ return (await pool.query<WorkspaceProjectVersion>('SELECT id,view_name AS name,view_stamp AS stamp FROM projects ORDER BY created_at ASC,id')).rows;
+}
+export async function listProjects(){return (await listWorkspaceProjectVersions()).map(({id,name})=>({id,name}));}
 export async function insertProject(p:Project){const client=await pool.connect();try{await client.query('BEGIN');await client.query('INSERT INTO projects(id,body,view_stamp,view_name) VALUES($1,$2,$3,$4)',[p.id,p,p.stamp,p.name]);await writeReadModel(client,p);await client.query('COMMIT');return p;}catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}}
 export async function getProject(id:string):Promise<Project>{
  const {rows}=await pool.query(`SELECT p.body,p.view_stamp,COALESCE((SELECT jsonb_agg(d.body ORDER BY d.sequence) FROM discussion_appends d WHERE d.project_id=p.id),'[]'::jsonb) AS appends FROM projects p WHERE p.id=$1`,[id]);

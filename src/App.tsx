@@ -14,6 +14,8 @@ import {ResolutionSuggestions, ProblemResolutionReview, ResolvedProblemRecords} 
 import {MaterialsWorkspace} from './materials-workspace';
 import {CollaborationWorkspace} from './collaboration-workspace';
 import {ExportMenu} from './export-menu';
+import {ReminderMenu} from './reminder-menu';
+import type {DiscussionReminder} from '../shared/discussion-reminders';
 import {isOverview, concreteCards, outlineGaps, excludedRequirements} from '../shared/intake-policy';
 import {initialCommunicationCard} from '../shared/card-organization';
 import './intake-integration.css';
@@ -49,6 +51,8 @@ export default function App(){
  const [toastTone,setToastTone]=useState<'success'|'error'|'info'>('info'),[projectError,setProjectError]=useState('');
  const [boot,setBoot]=useState<Bootstrap|null>(null),[tab,setTab]=useState<'materials'|'chat'>('chat'),[selected,setSelected]=useState(''),[focusDraftId,setFocusDraftId]=useState(''),[busy,setBusy]=useState(false),[toast,setToast]=useState(''),[error,setError]=useState(''),[creating,setCreating]=useState(false),[projectName,setProjectName]=useState(''),[management,setManagement]=useState(false),[modelsOpen,setModelsOpen]=useState(false);
  const projectId=useRef(localStorage.getItem('requirements-project')||''),bootRef=useRef<Bootstrap|null>(null),refreshSequence=useRef(0),syncCursor=useRef<{projectId:string;cursor:string}|undefined>(undefined);
+ const [reminderFocus,setReminderFocus]=useState<DiscussionReminder>();
+ const pendingReminder=useRef<DiscussionReminder|undefined>(undefined);
  const refresh=async()=>{
   const sequence=++refreshSequence.current,base=bootRef.current,previous=syncCursor.current,requested=projectId.current;
   const load=async(id:string,cursor?:string)=>api<WorkspaceSync>(`/api/workspace/sync?${new URLSearchParams({...id?{projectId:id}:{},...cursor?{cursor}:{}})}`);
@@ -63,7 +67,16 @@ export default function App(){
   }
   if(!value)throw Error('尚未取得项目数据');
   syncCursor.current={projectId:value.project.id,cursor:response.cursor};bootRef.current=value;
-  if(value!==base)setBoot(value);setError('');projectId.current=value.project.id;localStorage.setItem('requirements-project',value.project.id);return value;
+  if(value!==base)setBoot(value);
+  const reminder=pendingReminder.current;
+  if(reminder?.projectId===value.project.id){
+   pendingReminder.current=undefined;
+   if(value.project.cards.some(card=>card.id===reminder.cardId)){
+    setSelected(reminder.cardId);
+    setReminderFocus({...reminder});
+   }
+  }
+  setError('');projectId.current=value.project.id;localStorage.setItem('requirements-project',value.project.id);return value;
  };
  useEffect(()=>{let mounted=true;const load=()=>refresh().catch(e=>{if(mounted)setError(e.message)});load();const timer=setInterval(load,3000);return()=>{mounted=false;clearInterval(timer)}},[]);
  useEffect(()=>{
@@ -87,7 +100,20 @@ export default function App(){
  useEffect(()=>{if(boot&&!boot.project.cards.some(c=>c.id===selected))setSelected(initialCommunicationCard(boot.project,boot.participantId||boot.role)?.id||'');},[boot?.project,selected]);
  if(!boot)return <div className="loading-screen"><img className="platform-logo" src="/brand/logo.jpg" alt=""/><h1>需求协作平台</h1>{error?<><p className="danger-text">{error}</p><button onClick={()=>refresh().catch(e=>setError(e.message))}>重新连接</button></>:<p className="muted"><LoaderCircle size={16} className="spin"/> 正在加载项目…</p>}</div>;
  const p=boot.project,role=boot.role,participantId=boot.participantId||defaultParticipantId(role),person=personFor(role,participantId),card=p.cards.find(c=>c.id===selected)||initialCommunicationCard(p,participantId);
- const changeProject=(id:string)=>{setProjectName('');setProjectError('');projectId.current=id;setSelected('');setFocusDraftId('');setTab('chat');refresh().catch(e=>{setToastTone('error');setToast(e.message);});};
+ const changeProject=(id:string,reminder?:DiscussionReminder)=>{
+  setProjectName('');setProjectError('');setFocusDraftId('');setTab('chat');
+  setReminderFocus(undefined);
+  if(reminder)setManagement(false);
+  if(reminder&&p.id===id&&projectId.current===id){
+   setSelected(reminder.cardId);
+   setReminderFocus({...reminder});
+   return;
+  }
+  pendingReminder.current=reminder;
+  projectId.current=id;
+  setSelected('');
+  refresh().catch(e=>{setToastTone('error');setToast(e.message);});
+ };
  const startJob=(path:string,payload:unknown,message:string)=>run(()=>api(`/api/projects/${p.id}/${path}`,payload),message);
  return <div className="app-shell co-shell">
   <a className="skip-link" href="#workspace-main">跳到主要内容</a>
@@ -95,7 +121,7 @@ export default function App(){
    <div className="workspace-brand"><img className="platform-logo" src="/brand/logo.jpg" alt=""/><span>需求协作平台</span></div>
    <nav className="workspace-nav" aria-label="项目工作区"><button className={tab==='materials'?'active':''} aria-current={tab==='materials'?'page':undefined} onClick={()=>setTab('materials')}><Inbox size={16}/>材料箱</button><button className={tab==='chat'?'active':''} aria-current={tab==='chat'?'page':undefined} onClick={()=>setTab('chat')}><MessageCircle size={16}/>沟通群</button></nav>
    <div className="workspace-top-actions">
-    {tab==='materials'&&<button className="small" onClick={()=>setModelsOpen(true)}>模型</button>}
+    <ReminderMenu key={participantId} items={boot.reminders||[]} busy={busy} onOpen={item=>changeProject(item.projectId,item)}/>
     <label className="identity"><span className={`co-avatar ${role}`}>{person.initial}</span><select value={participantId} aria-label="切换身份" disabled={busy} onChange={e=>run(()=>api('/api/session',{participantId:e.target.value as ParticipantId}))}>{PARTICIPANTS.map(person=><option key={person.id} value={person.id}>{person.name} · {person.title}</option>)}</select></label>
     <div className="workspace-project-control"><label className="workspace-project-picker"><span className="workspace-project-select"><span className="workspace-project-name-width" aria-hidden="true">{p.name}</span><select aria-label="当前项目" title={p.name} value={p.id} disabled={busy} onChange={e=>changeProject(e.target.value)}>{boot.projects.map(x=><option value={x.id} key={x.id}>{x.name}</option>)}</select><ChevronDown size={13} aria-hidden="true"/></span></label><button className="icon-button new-project" title="新建项目" aria-label="新建项目" onClick={()=>setCreating(true)} disabled={busy||role!=='pm'}><Plus size={16}/></button></div>
     <ExportMenu project={p} cardId={card?.id} onManage={()=>setManagement(true)}/>
@@ -104,7 +130,7 @@ export default function App(){
   <main id="workspace-main" tabIndex={-1} aria-label="主要工作区" className={`main-container area-${tab}`}>
   {error&&<div className="notice warning connection-notice" role="alert"><AlertCircle size={16}/><span>连接暂时中断，正在自动重连。当前内容已保留。</span><button type="button" onClick={()=>void refresh().catch(e=>setError(e.message))}>立即重试</button></div>}
   <div style={{display:tab==='materials'?'contents':'none'}}><MaterialsWorkspace key={p.id} project={p} role={role} busy={busy} jobs={boot.jobs} modelConfigured={boot.config.modelConfigured} run={run} mutate={mutate} extract={ids=>startJob('extract',{materialIds:ids},'正在生成需求卡片，完成后可编辑或直接加入需求池。')} refine={(batchId,parentDraftId,revision)=>startJob('refine',{batchId,parentDraftId,revision},'Agent 正在细化概要，完成后请核对。')} openPool={()=>setTab('chat')} openCard={openCard} focusDraftId={focusDraftId}/></div>
-  <div style={{display:tab==='chat'?'contents':'none'}}><CollaborationWorkspace modelPicker={<ModelPicker model={boot.config.model} request={api} save={saveModel} disabledReason={busy?'正在保存，请稍候。':role!=='pm'?'由产品经理切换工作台模型。':boot.jobs.some(j=>['running','queued'].includes(j.status))?'任务处理中，完成后可切换模型。':''} onSettings={()=>setModelsOpen(true)}/>} project={p} card={card} role={role} participantId={participantId} busy={busy} jobs={boot.jobs} modelConfigured={boot.config.modelConfigured} setCard={setSelected} mutate={mutate} generateDemo={id=>startJob('demo/generate',{cardId:id},'Agent 正在生成并验证项目原型')} suggest={id=>startJob(`cards/${id}/suggest`,{},'Agent 正在整理本轮结论和需求草稿')} organize={()=>startJob('group',{},'Agent 正在分析模块归属，完成后可先预览再应用')} sendMaterials={(id,data)=>run(()=>api(`/api/projects/${p.id}/cards/${id}/material-messages`,data),'材料已发送，分析结果会显示在沟通群')} resumeDiscussion={(id,assessmentId)=>run(()=>api(`/api/projects/${p.id}/cards/${id}/conversation/retry`,{assessmentId}),'正在重新分析本轮讨论')} goMaterials={openDraft} onManage={()=>setManagement(true)}/></div>
+  <div style={{display:tab==='chat'?'contents':'none'}}><CollaborationWorkspace reminderFocus={reminderFocus} modelPicker={<ModelPicker model={boot.config.model} request={api} save={saveModel} disabledReason={busy?'正在保存，请稍候。':role!=='pm'?'由产品经理切换工作台模型。':boot.jobs.some(j=>['running','queued'].includes(j.status))?'任务处理中，完成后可切换模型。':''} onSettings={()=>setModelsOpen(true)}/>} project={p} card={card} role={role} participantId={participantId} busy={busy} jobs={boot.jobs} modelConfigured={boot.config.modelConfigured} setCard={setSelected} mutate={mutate} generateDemo={id=>startJob('demo/generate',{cardId:id},'Agent 正在生成并验证项目原型')} suggest={id=>startJob(`cards/${id}/suggest`,{},'Agent 正在整理本轮结论和需求草稿')} organize={()=>startJob('group',{},'Agent 正在分析模块归属，完成后可先预览再应用')} sendMaterials={(id,data)=>run(()=>api(`/api/projects/${p.id}/cards/${id}/material-messages`,data),'材料已发送，分析结果会显示在沟通群')} resumeDiscussion={(id,assessmentId)=>run(()=>api(`/api/projects/${p.id}/cards/${id}/conversation/retry`,{assessmentId}),'正在重新分析本轮讨论')} goMaterials={openDraft} onManage={()=>setManagement(true)}/></div>
   </main>
   {toast&&<div className={`toast ${toastTone}`} role={toastTone==='error'?'alert':'status'}>{toastTone==='error'?<AlertCircle size={18}/>:toastTone==='success'?<CheckCircle2 size={18}/>:<Sparkles size={18}/>}<span>{toast}</span><button type="button" aria-label="关闭通知" onClick={()=>setToast('')}><X size={15}/></button></div>}
   {creating&&<Modal title="新建项目" onClose={()=>setCreating(false)}><form noValidate onSubmit={async e=>{

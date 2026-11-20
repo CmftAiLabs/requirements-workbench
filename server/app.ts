@@ -14,7 +14,8 @@ import path from 'node:path';
 import {z,ZodError} from 'zod';
 import {config} from './config.js';
 import {requestAccessError,proxyTokenMatches} from './request-policy';
-import {pool,listProjects,insertProject,getProject,getWorkspaceProject,getPreviewProject,getArtifactProject,appendDiscussion,messagePage,mutateProject,listJobs,newJob,putJob,ConflictError} from './store.js';
+import {pool,listProjects,listWorkspaceProjectVersions,insertProject,getProject,getWorkspaceProject,getPreviewProject,getArtifactProject,appendDiscussion,messagePage,mutateProject,listJobs,newJob,putJob,ConflictError} from './store.js';
+import {createReminderReader} from './discussion-reminders';
 import {createProject,applyAction,attachIntakeRefinement,attachSuggestion,buildMarkdown,beginDelivery} from './domain.js';
 import {probeModel,refineIntakeRequirement,suggestChanges,suggestModuleGrouping} from './ai.js';
 import {concreteChats,groupingBasis} from '../shared/card-organization';
@@ -115,6 +116,7 @@ async function markMaterialFailed(projectId:string,materialId:string,error:unkno
 export async function buildApp(){
  const app=Fastify({logger:false,bodyLimit:2*1024*1024,requestTimeout:120000});
  const sync=createWorkspaceSync(),requestStarts=new WeakMap<FastifyRequest,number>(),responseBytes=new WeakMap<FastifyRequest,number>();
+ const readReminders=createReminderReader();
  const streams=new Set<()=>void>();app.addHook('preClose',async()=>{for(const close of streams)close();});
  const demos=createDemoQueue({enabled:config.modelConfigured});
  void demos.resume().catch(()=>app.log.warn('原型后台检查恢复未完成'));
@@ -175,12 +177,16 @@ export async function buildApp(){
  });
  app.get('/api/workspace/sync',async req=>{
   const query=z.object({projectId:z.string().max(100).optional(),cursor:z.string().max(100).optional()}).strict().parse(req.query);
-  const projects=await listProjects(),id=query.projectId||projects[0]?.id;
+  const versions=await listWorkspaceProjectVersions(),id=query.projectId||versions[0]?.id;
   if(!id)throw new Error('尚无项目');
-  const row=(await pool.query("SELECT view_stamp AS stamp FROM projects WHERE id=$1",[id])).rows[0];if(!row)throw Object.assign(new Error('项目不存在'),{statusCode:404});
+  if(!versions.some(project=>project.id===id))throw Object.assign(new Error('项目不存在'),{statusCode:404});
+  const projects=versions.map(({id,name})=>({id,name}));
   const jobs=await listJobs(id),person=participantOf(req),settings={model:config.model,modelConfigured:config.modelConfigured,knowledgeConfigured:!!config.targets.knowledge.url,teammateConfigured:!!config.targets.teammate.url,localOnly:!config.publicOrigin};
-  const context=`${id}:${person.id}`,signature=digest({stamp:row.stamp,jobs,projects,settings});
-  return sync(context,signature,query.cursor,async previous=>({projects,project:await getWorkspaceProject(id,previous?.project),jobs,role:person.role,participantId:person.id,config:settings}));
+  const context=`${id}:${person.id}`,signature=digest({versions,jobs,settings});
+  return sync(context,signature,query.cursor,async previous=>{
+   const [project,reminders]=await Promise.all([getWorkspaceProject(id,previous?.project),readReminders(versions,person.id)]);
+   return {projects,project,jobs,reminders,role:person.role,participantId:person.id,config:settings};
+  });
  });
  app.post('/api/session',async(req,reply)=>{
   const input=z.object({role:z.enum(['pm','business']).optional(),participantId:z.enum(['pm','business','business-sales','business-operations']).optional()}).strict().refine(value=>value.role||value.participantId,'请选择参与人员').parse(req.body);
