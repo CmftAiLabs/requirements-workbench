@@ -1270,6 +1270,24 @@ test('项目业务契约只规划一次，同一输入直接复用，规则调�
  });
 });
 
+test('共享业务定义按唯一片段更新，拒绝歧义、混用及超长补丁并保留旧版',async()=>{
+ const {prepareBusinessContract}=await import('../server/demo-business-contract');
+ const p=createProject('共享权限调整');p.cards=[structuredClone(card)];
+ const source="import {usePrototypeState} from './prototype-state'; export type Role='clerk'|'manager'; export interface BusinessState {role:Role} export const initialBusinessState:BusinessState={role:'clerk'}; export function useBusinessState(){return usePrototypeState<BusinessState>('shared.business',initialBusinessState)}";
+ const previous={summary:'原数据定义',source,inputKey:'old',runtimeKey:'old-runtime'},before=structuredClone(previous);
+ const edits=[{search:"export type Role='clerk'|'manager';",replace:"export type Role='clerk'|'manager'|'admin';"}];
+ await withGateway(()=>({content:JSON.stringify({summary:'增加管理员角色',edits})}),async requests=>{
+  const next=await prepareBusinessContract(p,previous);assert.equal(requests.length,1);assert.equal(next.source,source.replace(edits[0].search,edits[0].replace));assert.notEqual(next.runtimeKey,previous.runtimeKey);assert.deepEqual(previous,before);assert.deepEqual(p.cards[0].approvals,{});
+  assert.match(JSON.stringify(requests[0].messages),/优先 edits/);
+ });
+ for(const bad of [
+  {source,edits}, {reusePrevious:true,edits},
+  {edits:[{search:'missing',replace:'x'}]}, {edits:[{search:'BusinessState',replace:'x'}]},
+  {edits:[{search:source,replace:'x'.repeat(15000)},{search:'x'.repeat(15000),replace:'x'.repeat(15000)+'y'}]},
+  {edits:[{search:"'manager'",replace:"'manager'"+' '.repeat(15000)},{search:"'clerk'|'manager'",replace:"'clerk'|'manager'"+' '.repeat(15000)}]},
+ ])await withGateway(()=>({content:JSON.stringify({summary:'错误补丁',...bad})}),async requests=>{await assert.rejects(()=>prepareBusinessContract(p,previous));assert.equal(requests.length,2);assert.deepEqual(previous,before);});
+});
+
 test('新增业务字段与页面补丁在一次模型响应中合并，正式需求和只读运行代码不变',async()=>{
  const {generateDemoCode,BusinessContractChangeRequired}=await import('../server/demo-generator');
  const {prototypeStateSource,prototypePersona}=await import('../shared/prototype-shell');
