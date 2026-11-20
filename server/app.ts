@@ -115,6 +115,8 @@ async function markMaterialFailed(projectId:string,materialId:string,error:unkno
 }
 export async function buildApp(){
  const app=Fastify({logger:false,bodyLimit:2*1024*1024,requestTimeout:120000});
+ const workspaceRoot=path.resolve('dist'),workspaceIndex=path.join(workspaceRoot,'index.html');
+ const servesWorkspace=existsSync(workspaceIndex);
  const sync=createWorkspaceSync(),requestStarts=new WeakMap<FastifyRequest,number>(),responseBytes=new WeakMap<FastifyRequest,number>();
  const readReminders=createReminderReader();
  const streams=new Set<()=>void>();app.addHook('preClose',async()=>{for(const close of streams)close();});
@@ -177,16 +179,22 @@ export async function buildApp(){
  });
  app.get('/api/workspace/sync',async req=>{
   const query=z.object({projectId:z.string().max(100).optional(),cursor:z.string().max(100).optional()}).strict().parse(req.query);
-  const versions=await listWorkspaceProjectVersions(),id=query.projectId||versions[0]?.id;
+  const [versions,indexHtml]=await Promise.all([
+   listWorkspaceProjectVersions(),
+   servesWorkspace?readFile(workspaceIndex,'utf8').catch(()=>''):'',
+  ]);
+  const id=query.projectId||versions[0]?.id;
   if(!id)throw new Error('尚无项目');
   if(!versions.some(project=>project.id===id))throw Object.assign(new Error('项目不存在'),{statusCode:404});
   const projects=versions.map(({id,name})=>({id,name}));
   const jobs=await listJobs(id),person=participantOf(req),settings={model:config.model,modelConfigured:config.modelConfigured,knowledgeConfigured:!!config.targets.knowledge.url,teammateConfigured:!!config.targets.teammate.url,localOnly:!config.publicOrigin};
   const context=`${id}:${person.id}`,signature=digest({versions,jobs,settings});
-  return sync(context,signature,query.cursor,async previous=>{
+  const state=await sync(context,signature,query.cursor,async previous=>{
    const [project,reminders]=await Promise.all([getWorkspaceProject(id,previous?.project),readReminders(versions,person.id)]);
    return {projects,project,jobs,reminders,role:person.role,participantId:person.id,config:settings};
   });
+  const clientEntry=indexHtml.match(/<script\b[^>]*\bsrc="(\/assets\/[^"/]+\.js)"/)?.[1];
+  return {...state,clientEntry};
  });
  app.post('/api/session',async(req,reply)=>{
   const input=z.object({role:z.enum(['pm','business']).optional(),participantId:z.enum(['pm','business','business-sales','business-operations']).optional()}).strict().refine(value=>value.role||value.participantId,'请选择参与人员').parse(req.body);
@@ -458,8 +466,8 @@ export async function buildApp(){
   const md=s?.markdown||buildMarkdown(p);
   reply.type('text/markdown; charset=utf-8').header('Content-Disposition',`attachment; filename*=UTF-8''${encodeURIComponent(p.name+'-'+(s?.version||'当前草稿')+'.md')}`);return md;
  });
- if(existsSync(path.resolve('dist/index.html'))){
-  await app.register(statics,{root:path.resolve('dist'),prefix:'/'});
+ if(servesWorkspace){
+  await app.register(statics,{root:workspaceRoot,prefix:'/'});
   app.setNotFoundHandler((req,reply)=>req.url.startsWith('/api/')?reply.code(404).send({error:'接口不存在'}):reply.sendFile('index.html'));
  }else app.get('/',async(_,reply)=>reply.type('text/html').send('<html lang="zh-CN"><body>工作台正在构建，请稍后刷新。</body></html>'));
  return app;

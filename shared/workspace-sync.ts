@@ -1,10 +1,11 @@
 import type {Bootstrap} from './types';
 
 export type StatePatch = {op:'set'|'remove'|'append';path:string[];value?:unknown};
-export type WorkspaceSync =
+export type WorkspaceSync = {clientEntry?:string} & (
  | {kind:'snapshot';cursor:string;value:Bootstrap}
  | {kind:'delta';cursor:string;base:string;patches:StatePatch[]}
- | {kind:'unchanged';cursor:string};
+ | {kind:'unchanged';cursor:string}
+);
 const unsafe = new Set(['__proto__','prototype','constructor']);
 const object = (value:unknown):value is Record<string,unknown> => !!value && typeof value==='object' && !Array.isArray(value);
 

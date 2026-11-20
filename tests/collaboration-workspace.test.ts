@@ -34,14 +34,12 @@ test('沟通群在采纳和确认按钮处标出当前负责人，处理完成�
  const {registerHooks}=await import('node:module');
  const cssHook=registerHooks({load(url,context,next){return url.endsWith('.css')?{format:'module',source:'export {};',shortCircuit:true}:next(url,context);}});
  const {CollaborationWorkspace}=await import('../src/collaboration-workspace').finally(()=>cssHook.deregister());
- const renderMentions=(project:Project,participantId:ParticipantId)=>{
-  const html=renderToStaticMarkup(createElement(CollaborationWorkspace,{
+ const render=(project:Project,participantId:ParticipantId)=>renderToStaticMarkup(createElement(CollaborationWorkspace,{
    project,card:project.cards[0],role:participantById(participantId)!.role,participantId,busy:false,jobs:[],modelConfigured:true,
    setCard:()=>{},mutate:async()=>true,suggest:async()=>true,generateDemo:async()=>true,organize:async()=>true,
    sendMaterials:async()=>true,resumeDiscussion:async()=>true,goMaterials:()=>{},onManage:()=>{},
-  }));
-  return Array.from(html.matchAll(/class="co-action-mention"[^>]*>(@[^<]+)/g),match=>match[1]);
- };
+ }));
+ const renderMentions=(project:Project,participantId:ParticipantId)=>Array.from(render(project,participantId).matchAll(/class="co-action-mention"[^>]*>(@[^<]+)/g),match=>match[1]);
 
  for(const proposer of ['business-operations','pm'] as const){
   const {p,c}=discussionReplayProject();
@@ -55,6 +53,11 @@ test('沟通群在采纳和确认按钮处标出当前负责人，处理完成�
   assert.deepEqual(renderMentions(p,proposer),[proposer==='pm'?'@陈敏':'@林舟']);
   if(proposer==='pm'){
    assert.deepEqual(renderMentions(p,'business'),['@陈敏']);
+   for(const participantId of ['pm','business','business-operations'] as const){
+    const button=render(p,participantId).match(/<button\b([^>]*)>(?:(?!<\/button>)[\s\S])*?确认本轮变更<\/button>/)?.[1];
+    assert.ok(button,`${participantId} 应看到产品变更的确认按钮`);
+    assert.equal(button.includes('disabled=""'),participantId!=='business');
+   }
    applyAction(p,{type:'confirmProductSuggestion',cardId:c.id,suggestionId:c.suggestion!.id},'business','business');
    assert.deepEqual(renderMentions(p,'pm'),['@林舟']);
    applyAction(p,{type:'pmConfirm',cardId:c.id},'pm','pm');

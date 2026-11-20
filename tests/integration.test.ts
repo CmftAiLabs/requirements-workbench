@@ -158,6 +158,10 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       c.messages=Array.from({length:120},(_,i)=>({id:`page-${i}`,role:'business',text:`合成讨论 ${i}`,createdAt:new Date(1700000000000+i*1000).toISOString()}));await db.insertProject(p);
       const url=`/api/workspace/sync?projectId=${p.id}`,first=await app!.inject({url,headers:{host:'127.0.0.1',cookie:cookies.pm}}),snapshot=first.json();assert.equal(snapshot.kind,'snapshot');assert.equal(snapshot.value.project.materials[0].text,'');assert.equal(snapshot.value.project.cards[0].messageCount,120);assert.equal(snapshot.value.project.cards[0].messages.length,4);assert.ok(first.headers['server-timing']);
       const same=await app!.inject({url:url+'&cursor='+snapshot.cursor,headers:{host:'127.0.0.1',cookie:cookies.pm}});assert.equal(same.json().kind,'unchanged');assert.ok(same.payload.length<150);
+      const pageHTML=(await app!.inject({url:'/',headers:{host:'127.0.0.1'}})).body;
+      const clientEntry=pageHTML.match(/src="(\/assets\/index-[^"]+\.js)"/)?.[1];
+      assert.equal(snapshot.clientEntry,clientEntry);
+      assert.equal(same.json().clientEntry,clientEntry);
       assert.equal(snapshot.value.project.cards[0].history.length,2);assert.equal(snapshot.value.project.cards[0].historyCount,c.history.length);
       const history=await app!.inject({url:`/api/projects/${p.id}/cards/${c.id}/history`,headers:{host:'127.0.0.1'}});assert.deepEqual(history.json().history,c.history);
       const page=await app!.inject({url:`/api/projects/${p.id}/cards/${c.id}/messages?limit=40`,headers:{host:'127.0.0.1'}});assert.equal(page.json().messages.length,40);assert.equal(page.json().messages[0].id,'page-80');const older=await app!.inject({url:`/api/projects/${p.id}/cards/${c.id}/messages?limit=40&before=${page.json().nextBefore}`,headers:{host:'127.0.0.1'}});assert.equal(older.json().messages.at(-1).id,'page-79');

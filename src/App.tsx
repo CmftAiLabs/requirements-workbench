@@ -50,6 +50,8 @@ function MaterialReader({material,onClose}:{material:Material;onClose:()=>void})
 export default function App(){
  const [toastTone,setToastTone]=useState<'success'|'error'|'info'>('info'),[projectError,setProjectError]=useState('');
  const [boot,setBoot]=useState<Bootstrap|null>(null),[tab,setTab]=useState<'materials'|'chat'>('chat'),[selected,setSelected]=useState(''),[focusDraftId,setFocusDraftId]=useState(''),[busy,setBusy]=useState(false),[toast,setToast]=useState(''),[error,setError]=useState(''),[creating,setCreating]=useState(false),[projectName,setProjectName]=useState(''),[management,setManagement]=useState(false),[modelsOpen,setModelsOpen]=useState(false);
+ const [loadedEntry]=useState(()=>document.querySelector('script[type="module"][src^="/assets/"]')?.getAttribute('src'));
+ const [updateAvailable,setUpdateAvailable]=useState(false);
  const projectId=useRef(localStorage.getItem('requirements-project')||''),bootRef=useRef<Bootstrap|null>(null),refreshSequence=useRef(0),syncCursor=useRef<{projectId:string;cursor:string}|undefined>(undefined);
  const [reminderFocus,setReminderFocus]=useState<DiscussionReminder>();
  const pendingReminder=useRef<DiscussionReminder|undefined>(undefined);
@@ -66,6 +68,7 @@ export default function App(){
    catch{response=await load(requested);if(sequence!==refreshSequence.current)return bootRef.current;if(response.kind!=='snapshot')throw Error('重新同步失败');value=response.value;}
   }
   if(!value)throw Error('尚未取得项目数据');
+  setUpdateAvailable(Boolean(loadedEntry&&response.clientEntry&&response.clientEntry!==loadedEntry));
   syncCursor.current={projectId:value.project.id,cursor:response.cursor};bootRef.current=value;
   if(value!==base)setBoot(value);
   const reminder=pendingReminder.current;
@@ -132,6 +135,7 @@ export default function App(){
   <div style={{display:tab==='materials'?'contents':'none'}}><MaterialsWorkspace key={p.id} project={p} role={role} busy={busy} jobs={boot.jobs} modelConfigured={boot.config.modelConfigured} run={run} mutate={mutate} extract={ids=>startJob('extract',{materialIds:ids},'正在生成需求卡片，完成后可编辑或直接加入需求池。')} refine={(batchId,parentDraftId,revision)=>startJob('refine',{batchId,parentDraftId,revision},'Agent 正在细化概要，完成后请核对。')} openPool={()=>setTab('chat')} openCard={openCard} focusDraftId={focusDraftId}/></div>
   <div style={{display:tab==='chat'?'contents':'none'}}><CollaborationWorkspace reminderFocus={reminderFocus} modelPicker={<ModelPicker model={boot.config.model} request={api} save={saveModel} disabledReason={busy?'正在保存，请稍候。':role!=='pm'?'由产品经理切换工作台模型。':boot.jobs.some(j=>['running','queued'].includes(j.status))?'任务处理中，完成后可切换模型。':''} onSettings={()=>setModelsOpen(true)}/>} project={p} card={card} role={role} participantId={participantId} busy={busy} jobs={boot.jobs} modelConfigured={boot.config.modelConfigured} setCard={setSelected} mutate={mutate} generateDemo={id=>startJob('demo/generate',{cardId:id},'Agent 正在生成并验证项目原型')} suggest={id=>startJob(`cards/${id}/suggest`,{},'Agent 正在整理本轮结论和需求草稿')} organize={()=>startJob('group',{},'Agent 正在分析模块归属，完成后可先预览再应用')} sendMaterials={(id,data)=>run(()=>api(`/api/projects/${p.id}/cards/${id}/material-messages`,data),'材料已发送，分析结果会显示在沟通群')} resumeDiscussion={(id,assessmentId)=>run(()=>api(`/api/projects/${p.id}/cards/${id}/conversation/retry`,{assessmentId}),'正在重新分析本轮讨论')} goMaterials={openDraft} onManage={()=>setManagement(true)}/></div>
   </main>
+  {updateAvailable&&!toast&&<div className="toast workspace-update-notice"><span role="status">页面有新版本。请保存当前编辑后刷新。</span><button type="button" disabled={busy} onClick={()=>window.location.reload()}>刷新页面</button></div>}
   {toast&&<div className={`toast ${toastTone}`} role={toastTone==='error'?'alert':'status'}>{toastTone==='error'?<AlertCircle size={18}/>:toastTone==='success'?<CheckCircle2 size={18}/>:<Sparkles size={18}/>}<span>{toast}</span><button type="button" aria-label="关闭通知" onClick={()=>setToast('')}><X size={15}/></button></div>}
   {creating&&<Modal title="新建项目" onClose={()=>setCreating(false)}><form noValidate onSubmit={async e=>{
    e.preventDefault();if(busy)return;const value=projectName.trim();
