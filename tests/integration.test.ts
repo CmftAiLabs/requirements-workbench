@@ -550,6 +550,21 @@ test('独立临时 PostgreSQL 数据库中的 API、交付与重启集成', {tim
       } finally { config.modelConfigured = priorConfigured; }
     });
 
+    await t.test('API 拒绝未选择的 AI 字段，保存及刷新后保留人工决定，入池不产生审批',async()=>{
+      const {decideAIField}=await import('../shared/intake-fields');
+      const p=createProject('AI 字段 API 验收');
+      const batch=attachIntakeBatch(p,[{key:'purchase',title:'采购查询',fields:{...completeFields},sourceIds:['crm-kickoff'],evidence:{},assessment:'可确认',issues:[],granularity:'具体',origin:'材料要求',rationale:'查询结果独立',coverageGaps:[],aiSupplements:{exception:{text:'失败时保留查询条件',reason:'材料尚未规定失败路径'},quality:{text:'两秒返回',reason:'待业务确认性能目标'}}}],['crm-kickoff']);
+      await db.insertProject(p);
+      const make=(project:Project,importSelected=true):Extract<Action,{type:'saveIntake'}>=>{const b=project.intakeBatches![0];return {type:'saveIntake',batchId:b.id,revision:b.revision,importSelected,drafts:b.drafts.map(({id,title,fields,selected,exclusionReason,coverageGaps,aiReviews})=>({id,title,fields,selected,exclusionReason,coverageGaps,aiReviews}))};};
+      const blocked=await act(p,make(p),'pm');assert.equal(blocked.statusCode,400);assert.match(blocked.json().error,/AI 分析补充未处理/);assert.equal((await db.getProject(p.id)).cards.length,0);
+      const a=make(p,false),draft=batch.drafts[0];a.drafts[0].aiReviews=decideAIField(draft,'exception','保留');a.drafts[0].aiReviews=decideAIField({...draft,aiReviews:a.drafts[0].aiReviews},'quality','删除');
+      const denied=await act(p,a,'business');assert.equal(denied.statusCode,400);assert.match(denied.json().error,/权限/);assert.equal((await act(p,a,'pm')).statusCode,200);
+      const saved=await db.getProject(p.id);assert.equal(saved.cards.length,0);assert.equal(saved.intakeBatches![0].drafts[0].aiReviews!.quality!.decision,'删除');
+      assert.equal((await act(saved,make(saved),'pm')).statusCode,200);const imported=await db.getProject(p.id),c=imported.cards[0];
+      assert.match(c.fields.exception,/失败时保留查询条件/);assert.equal(c.fields.quality,completeFields.quality);assert.deepEqual(c.approvals,{});assert.deepEqual(c.confirmations,[]);assert.equal(c.aiOrigins!.exception!.reviewedBy,'pm');
+      const repeated=await act(imported,make(imported,false),'pm');assert.equal(repeated.statusCode,200,repeated.body);assert.equal((await db.getProject(p.id)).cards.length,1);
+    });
+
     await t.test('材料草稿 API 保存、权限、版本保护与入池分离', async () => {
       const project = createProject('入池 API 验证');
       const base: IntakeCandidate = {key:'overview',title:'CRM 客户管理',fields:{...completeFields},sourceIds:['crm-kickoff'],assessment:'可确认',issues:[],evidence:{},granularity:'概要',origin:'材料要求',rationale:'多项业务成果',coverageGaps:[]};

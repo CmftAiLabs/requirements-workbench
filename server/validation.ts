@@ -1,6 +1,7 @@
 import {z} from 'zod';
 import {FIELDS} from '../shared/types.js';
 import {organizationSchema,moduleNameSchema} from './organization-schema';
+import {intakeAIReviewsSchema} from './intake-field-schema';
 const id=z.string().min(1).max(120),reason=z.string().trim().min(1).max(5000);
 const field=z.enum(FIELDS.map(f=>f[0]) as ['goal','scope','flow','permission','exception','data','constraint','quality','acceptance']);
 const fields=z.object(Object.fromEntries(FIELDS.map(([k])=>[k,z.string().max(12000)])) as Record<typeof field._output,z.ZodString>).strict();
@@ -12,7 +13,7 @@ export const actionSchema=z.discriminatedUnion('type',[
  z.object({type:z.literal('organizeCard'),cardId:id,organization:organizationSchema}).strict(),
  z.object({type:z.literal('adoptConclusion'),cardId:id,suggestionId:id,decisions:z.partialRecord(field,z.enum(['采纳','不采纳'])),overrides:z.partialRecord(field,z.string().trim().min(1).max(6000)).optional(),resolvedBlockerIds:z.array(id).max(100).refine(ids=>new Set(ids).size===ids.length,'同一问题不能重复选择').optional()}).strict(),
  z.object({type:z.literal('updateOverview'),cardId:id,title:z.string().trim().min(1).max(120),fields,coverageGaps:z.array(z.string().trim().min(1).max(5000)).max(100),reason}).strict(),
- z.object({type:z.literal('saveIntake'),batchId:id,revision:z.number().int().positive(),drafts:z.array(z.object({id,organization:organizationSchema.optional(),title:z.string().trim().min(1).max(120),fields,selected:z.boolean(),exclusionReason:z.string().trim().max(5000),coverageGaps:z.array(z.string().trim().min(1).max(5000)).max(100)}).strict()).min(1).max(100).refine(items=>new Set(items.map(item=>item.id)).size===items.length,'同一草稿不能重复提交'),importSelected:z.boolean()}).strict(),
+ z.object({type:z.literal('saveIntake'),batchId:id,revision:z.number().int().positive(),drafts:z.array(z.object({id,aiReviews:intakeAIReviewsSchema.optional(),organization:organizationSchema.optional(),title:z.string().trim().min(1).max(120),fields,selected:z.boolean(),exclusionReason:z.string().trim().max(5000),coverageGaps:z.array(z.string().trim().min(1).max(5000)).max(100)}).strict()).min(1).max(100).refine(items=>new Set(items.map(item=>item.id)).size===items.length,'同一草稿不能重复提交'),importSelected:z.boolean()}).strict(),
  z.object({type:z.literal('message'),cardId:id,text:reason,replyTo:id.optional(),baseRevision:z.number().int().positive().optional(),baseRound:z.number().int().positive().optional(),clientMessageId:id.optional()}),
  z.object({type:z.literal('applySuggestion'),cardId:id,suggestionId:id,decisions:z.partialRecord(field,z.enum(['采纳','不采纳'])),overrides:z.partialRecord(field,z.string().trim().min(1).max(6000)).optional(),resolvedBlockerIds:z.array(id).max(100).refine(ids=>new Set(ids).size===ids.length,'同一问题不能重复选择').optional()}),
  z.object({type:z.literal('editCard'),cardId:id,fields,title:z.string().trim().min(1).max(120),reason}),

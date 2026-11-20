@@ -1,3 +1,4 @@
+import {aiOriginNote} from '../shared/intake-fields';
 import {FIELDS,cardStatus,versionLabel,type Evidence,type Project} from '../shared/types.ts';
 import {conferencePage,CONFERENCE_PAGES} from '../shared/conference-demo.ts';
 import {liveSuggestion} from '../shared/crm-demo.ts';
@@ -32,7 +33,7 @@ export function conferencePRD(p:Project){
  '每一节对应一张具体需求卡，保留固定九字段。括号内 E 编号可在第7节找到原文；无依据或未决规则仍保留待明确。',''];
  cards.forEach((c,i)=>{
   lines.push(`### 4.${i+1} ${c.title}`,'',`需求编号：${c.id} · 修订 ${c.revision} · 状态 ${cardStatus(c)}`,'',`演示页面：${CONFERENCE_PAGES[conferencePage(c)]}`,'');
-  for(const [key,label] of FIELDS){const refs=(c.provenance[key]||[]).map(ref=>quoteLabel(ref,c.id));lines.push(`**${label}**：${c.fields[key]||'待明确'}${refs.length?' ['+[...new Set(refs)].join('，')+']':''}`,'');}
+  for(const [key,label] of FIELDS){const refs=(c.provenance[key]||[]).map(ref=>quoteLabel(ref,c.id));lines.push(`**${label}**：${c.fields[key]||'待明确'}${refs.length?' ['+[...new Set(refs)].join('，')+']':''}`,'');const note=aiOriginNote(c,key);if(note)lines.push(`> ${note}`,'');}
   if(liveSuggestion(c))lines.push('该卡仍有尚未采纳的 Agent 建议，本节只采用当前已保存正文。','');
   const pm=c.approvals.pm,business=c.approvals.business;
   lines.push(`确认记录：产品${pm?.result==='通过'&&pm.revision===c.revision&&pm.round===c.round?'已确认':'待确认'}；业务${business?.result==='通过'&&business.revision===c.revision&&business.round===c.round?'已确认':'待确认'}。`,'');

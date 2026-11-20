@@ -6,6 +6,7 @@ import {buildDemoHTML,demoModel,demoLabel} from '../shared/project-demo.js';
 import {conferencePRD} from './conference-prd.ts';
 import {concreteCards,excludedRequirements,outlineGaps} from '../shared/intake-policy.js';
 import {buildMarkdown} from './domain.js';
+import {aiOriginNote} from '../shared/intake-fields';
 
 export function workspacePRD(p:Project){
  const formal=['已明确','已交付'].includes(p.phase);
@@ -14,7 +15,7 @@ export function workspacePRD(p:Project){
  const lines=[`# ${p.name} · 产品需求文档（草稿）`,'',`版本：${versionLabel(p)} · ${p.phase}`,'','本文件包含当前已采纳需求及尚待确认事项。未采纳的 Agent 建议不作为需求结论；本草稿不能代替正式评审。','','## 本期需求',''];
  for(const [index,c] of concreteCards(p).filter(c=>c.included).entries()){
   lines.push(`### ${index+1}. ${c.title}`, '', `状态：${cardStatus(c)} · 需求编号：${c.id} · 修订 ${c.revision}`, '');
-  for(const [key,label] of FIELDS)lines.push(`#### ${label}`,'',c.fields[key]||'待明确','');
+  for(const [key,label] of FIELDS){lines.push(`#### ${label}`,'',c.fields[key]||'待明确','');const note=aiOriginNote(c,key);if(note)lines.push(`> ${note}`,'');}
   const blockers=c.blockers.filter(b=>!b.resolved);if(blockers.length)lines.push('待沟通：',...blockers.map(b=>`- ${b.reason}`),'');
   if(liveSuggestion(c))lines.push('本需求有尚未采纳的 Agent 修改建议，请回到沟通群核对。','');
   lines.push('来源：',...c.sources.map(id=>{const m=p.materials.find(m=>m.id===id);return `- ${m?.name||id}${m?.location?` · ${m.location}`:''}`;}),'');

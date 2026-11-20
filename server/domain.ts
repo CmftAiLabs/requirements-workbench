@@ -3,6 +3,7 @@ import {isNoopSuggestion} from '../shared/conclusion-presentation';
 import {hasUnresolvedContent} from '../shared/requirement-clarity';
 import {participantById,isBusinessOwner,isQuestionRecipient,type ParticipantId,personLabel} from '../shared/participants';
 import { randomUUID } from 'node:crypto';
+import {isDeepStrictEqual} from 'node:util';
 import { FIELDS, ROLES, cardStatus, versionLabel } from '../shared/types.ts';
 import type { Action, Card, ChangeDependency, Confirmation, Delivery, Evidence, ExtractedCard, FieldChange, FieldKey, Fields, IntakeBatch, IntakeCandidate, IntakeDraft, ProblemResolution, Project, Role, Snapshot, SuggestionDraft } from '../shared/types.ts';
 import { crmMaterials } from './seed.ts';
@@ -13,6 +14,8 @@ import { getChatDisabledReason, type ChatOperation } from '../shared/chat-policy
 import { resolutionDisabledReason } from '../shared/resolution-policy.ts';
 import { getSuggestionReview } from '../shared/suggestion-review.ts';
 import { concreteCards, intakeAssessment, isOverview, outlineGaps, excludedRequirements } from '../shared/intake-policy.ts';
+import {aiReviewFor,aiOriginNote,pendingAIFields,resolvedIntakeFields,splitLegacyAISupplements} from '../shared/intake-fields';
+import {aiSupplementsSchema,intakeAIReviewsSchema} from './intake-field-schema';
 
 const now = () => new Date().toISOString();
 const id = (prefix: string) => `${prefix}-${randomUUID()}`;
@@ -199,7 +202,8 @@ function checkedIntakeCandidates(project: Project, candidates: IntakeCandidate[]
     if (key !== candidate.key || key.length > 120 || keys.has(key)) throw new Error('候选卡片编号必须唯一、不含首尾空格且不超过 120 字');
     keys.set(key, id('draft'));
   }
-  return candidates.map(candidate => {
+  return candidates.map(original => {
+    const candidate=splitLegacyAISupplements(original);
     if (!['概要', '具体'].includes(candidate.granularity) || !['材料要求', '建议补充'].includes(candidate.origin)) throw new Error('卡片粒度或来源类型不正确');
     if (!['需评估', '待澄清', '可确认'].includes(candidate.assessment)) throw new Error('需求评估结果不正确');
     const title = text(candidate.title, '候选卡片标题');
@@ -210,12 +214,14 @@ function checkedIntakeCandidates(project: Project, candidates: IntakeCandidate[]
     if (!Array.isArray(candidate.sourceIds) || !candidate.sourceIds.length || candidate.sourceIds.some(sourceId => !materialIds.includes(sourceId))) throw new Error('候选卡片引用了本次未整理的材料');
     const sourceIds = [...new Set(candidate.sourceIds)];
     const evidence = Object.fromEntries(FIELDS.map(([key]) => [key, (candidate.evidence?.[key] || []).map(item => evidenceFor(project, undefined, item, sourceIds))]));
+    const aiSupplements=aiSupplementsSchema.parse(candidate.aiSupplements||{});
+    for(const supplement of Object.values(aiSupplements))supplement.evidence=(supplement.evidence||[]).map(item=>evidenceFor(project,undefined,item,sourceIds)) as typeof supplement.evidence;
     const parent = candidate.parentKey ? candidates.find(item => item.key === candidate.parentKey) : undefined;
     if (candidate.parentKey && (!parent || parent.granularity !== '概要' || parent.parentKey || candidate.granularity !== '具体' || parent === candidate)) throw new Error('卡片只允许概要父卡与具体子卡两层关系');
     const related = candidate.relatedCardId ? project.cards.find(card => card.id === candidate.relatedCardId) : project.cards.find(card => evidenceText(card.title) === evidenceText(title));
     if (candidate.relatedCardId && !related) throw new Error('关联的正式需求卡片不存在');
     const issues = stringList(candidate.issues, '待明确问题');
-    return {...(candidate.organization?{organization:organizationSchema.parse(candidate.organization)}:{}),id: keys.get(candidate.key)!, ...(parent ? {parentId: keys.get(parent.key)!} : {}), title, fields, sourceIds, evidence, assessment: intakeAssessment({...candidate, fields, issues}), issues, granularity: candidate.granularity, origin: candidate.origin, rationale: text(candidate.rationale, '粒度判断理由'), coverageGaps: stringList(candidate.coverageGaps, '尚待细化范围'), selected: candidate.origin === '材料要求' && !related, exclusionReason: '', ...(related ? {relatedCardId: related.id} : {})};
+    return {...(candidate.organization?{organization:organizationSchema.parse(candidate.organization)}:{}),id: keys.get(candidate.key)!, ...(parent ? {parentId: keys.get(parent.key)!} : {}), title, fields, sourceIds, evidence, aiSupplements, assessment: intakeAssessment({...candidate, fields, issues}), issues, granularity: candidate.granularity, origin: candidate.origin, rationale: text(candidate.rationale, '粒度判断理由'), coverageGaps: stringList(candidate.coverageGaps, '尚待细化范围'), selected: candidate.origin === '材料要求' && !related, exclusionReason: '', ...(related ? {relatedCardId: related.id} : {})};
   });
 }
 
@@ -266,7 +272,7 @@ function saveIntake(project: Project, action: Extract<Action, {type:'saveIntake'
   if (!batch || batch.revision !== action.revision) throw new Error('材料草稿已经变化，请刷新后重新确认');
   if (!Array.isArray(action.drafts) || action.drafts.length !== batch.drafts.length || new Set(action.drafts.map(draft => draft.id)).size !== action.drafts.length) throw new Error('请完整提交本批次草稿，同一草稿不能重复');
   if (typeof action.importSelected !== 'boolean') throw new Error('请选择保存草稿或保存到需求池');
-  const draftCopy = clone(batch.drafts);
+  const draftCopy = clone(batch.drafts).map(draft=>draft.poolCardId?draft:splitLegacyAISupplements(draft));
   const edits: string[] = [];
   for (const update of action.drafts) {
     const draft = draftCopy.find(item => item.id === update.id);
@@ -279,19 +285,28 @@ function saveIntake(project: Project, action: Extract<Action, {type:'saveIntake'
     if (exclusionReason.length > 5000) throw new Error('本期排除理由不能超过 5000 字');
     const coverageGaps = stringList(update.coverageGaps, '尚待细化范围');
     const organization = update.organization?organizationSchema.parse(update.organization):draft.organization;
+    const aiReviews=intakeAIReviewsSchema.parse(update.aiReviews??draft.aiReviews??{});
+    for(const [key] of Object.entries(aiReviews))if(!draft.aiSupplements?.[key as FieldKey])throw new Error('不能为不存在的 AI 补充提交保留或删除决定');
+    const aiChanged=!isDeepStrictEqual(aiReviews,draft.aiReviews||{});
     const organizationChanged=JSON.stringify(organization)!==JSON.stringify(draft.organization);
     const changedFields = FIELDS.filter(([key]) => fields[key] !== draft.fields[key]).map(([key]) => key);
     const changed = organizationChanged || title !== draft.title || changedFields.length || update.selected !== draft.selected || exclusionReason !== draft.exclusionReason || JSON.stringify(coverageGaps) !== JSON.stringify(draft.coverageGaps);
     if (draft.poolCardId) {
-      if (changed) throw new Error('已入池卡片请到需求池编辑，材料箱不再维护第二份正文');
+      if (changed||aiChanged) throw new Error('已入池卡片请到需求池编辑，材料箱不再维护第二份正文');
       continue;
     }
-    if (draft.relatedCardId && (organizationChanged || title !== draft.title || changedFields.length || update.selected || JSON.stringify(coverageGaps) !== JSON.stringify(draft.coverageGaps))) throw new Error('已有关联正式卡，请到原卡沟通；材料箱仅可记录已核对覆盖或本期排除的理由');
+    if (draft.relatedCardId && (aiChanged || organizationChanged || title !== draft.title || changedFields.length || update.selected || JSON.stringify(coverageGaps) !== JSON.stringify(draft.coverageGaps))) throw new Error('已有关联正式卡，请到原卡沟通；材料箱仅可记录已核对覆盖或本期排除的理由');
     if (update.selected && exclusionReason) throw new Error('选中入池的卡片不能同时标记本期排除');
     if (changed) edits.push(`${title}${changedFields.length ? `（调整${changedFields.map(key => FIELDS.find(([field]) => field === key)![1]).join('、')}）` : ''}`);
     for (const key of changedFields) draft.evidence[key] = [];
     draft.editedFields = [...new Set([...(draft.editedFields || []), ...changedFields])];
     Object.assign(draft, {...(organization?{organization}:{}),title, fields, selected: update.selected, exclusionReason, coverageGaps});
+    if(draft.aiReviews||update.aiReviews||Object.keys(draft.aiSupplements||{}).length)draft.aiReviews=aiReviews;
+    for(const [key,label] of FIELDS){const review=draft.aiReviews?.[key];if(!review)continue;
+      if(!aiReviewFor(draft,key)?.decision){delete review.decision;delete review.reviewedText;delete review.reviewedBase;}
+      if(review.decision==='保留'&&!review.text.trim())throw new Error(`${label}的 AI 补充为空，请填写内容或选择删除`);
+      if(aiChanged&&review.decision)edits.push(`${title}：${review.decision} AI 分析补充（${label}）`);
+    }
     draft.assessment = intakeAssessment(draft);
   }
   const selected = action.importSelected ? draftCopy.filter(draft => draft.selected && !draft.poolCardId) : [];
@@ -305,19 +320,26 @@ function saveIntake(project: Project, action: Extract<Action, {type:'saveIntake'
   }
   const existingTitles = new Set(project.cards.map(card => evidenceText(card.title)));
   for (const draft of selected) {
+    const pending=pendingAIFields(draft);
+    if(pending.length)throw new Error(`“${draft.title}”还有 ${pending.length} 项 AI 分析补充未处理，请逐项选择保留或删除后再加入需求池`);
+    if(Object.values(resolvedIntakeFields(draft)).some(value=>value.length>12000))throw new Error(`“${draft.title}”合并后的字段超过 12000 字，请精简后再入池`);
     if (draft.relatedCardId || existingTitles.has(evidenceText(draft.title))) throw new Error(`“${draft.title}”已有关联或同名正式卡，请到原卡沟通，不能重复入池`);
     existingTitles.add(evidenceText(draft.title));
   }
   // Prepare all cards on an isolated copy so any validation failure leaves the project intact.
   const prepared = clone(project);
   const previousCount = prepared.cards.length;
-  if (selected.length) addExtractedCards(prepared, selected.map(draft => ({...draft, ...(draft.granularity === '概要' ? {assessment: '待澄清' as const, issues: []} : {})})), batch.materialIds);
+  if (selected.length) addExtractedCards(prepared, selected.map(draft => ({...draft,fields:resolvedIntakeFields(draft), ...(draft.granularity === '概要' ? {assessment: '待澄清' as const, issues: []} : {})})), batch.materialIds);
   const newCards = prepared.cards.slice(previousCount);
   selected.forEach((draft, index) => {draft.poolCardId = newCards[index].id; draft.selected = true;});
   selected.forEach((draft, index) => {
     const card = newCards[index];
     card.granularity = draft.granularity;
     card.intakeDraftId = draft.id;
+    for(const [key] of FIELDS){const review=aiReviewFor(draft,key);if(review?.decision!=='保留')continue;
+      card.aiOrigins||={};card.aiOrigins[key]={...clone(review.supplement),text:review.text.trim(),fieldValue:card.fields[key],reviewedBy:role,reviewedAt:now()};
+    }
+    if(card.aiOrigins)card.history[0].reason+='；AI 分析补充经产品经理逐项选择保留';
     if (draft.parentId) card.parentId = draftCopy.find(parent => parent.id === draft.parentId)!.poolCardId;
     if (isOverview(card)) card.coverageGaps = [...new Set([...draft.coverageGaps, ...draft.issues])];
     if (draft.editedFields?.length) card.history[0].reason += `；产品经理调整：${draft.editedFields.map(key => FIELDS.find(([field]) => field === key)![1]).join('、')}`;
@@ -676,6 +698,7 @@ export function buildMarkdown(project: Project, cards = concreteCards(project).f
     lines.push(`### ${mdText(card.title)}`, '', `需求编号：${card.id} · 类型：${card.type} · 修订：${card.revision} · 确认轮次：${card.round}`, '');
     for (const [key, label] of FIELDS) {
       lines.push(`#### ${label}`, '', mdText(card.fields[key]), '');
+      const aiNote=aiOriginNote(card,key);if(aiNote)lines.push(`> ${mdText(aiNote)}`,'');
       const evidence = card.provenance[key];
       if (evidence?.length) {
         lines.push('依据：');

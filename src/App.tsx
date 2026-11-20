@@ -1,3 +1,4 @@
+import {AIOrigin} from './intake-ai-field';
 import {ModelPicker,ModelSettings} from './model-settings';
 import {PARTICIPANTS,personFor,defaultParticipantId,isBusinessOwner,type ParticipantId} from '../shared/participants';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
@@ -141,7 +142,7 @@ function Pool({project:p,role,busy,openCard,mutate,goMaterials,selected,closeOve
 
 function FieldContent({card,field,materials}:{card:Card;field:FieldKey;materials:Material[]}){
  const refs=card.provenance?.[field]||[];
- return <div className="field-content"><h4>{labels[field]}</h4><p>{card.fields[field]||'待明确'}</p>{refs.length>0&&<details className="field-trace"><summary>查看依据 · {refs.length}</summary>{refs.map((ref,i)=><div className="trace-item" key={i}><span className="tiny muted">{ref.materialId?materials.find(m=>m.id===ref.materialId)?.name||ref.materialId:ref.messageId?'讨论消息 '+ref.messageId:'来源依据'}{ref.location?' · '+ref.location:''}</span><blockquote>{ref.quote}</blockquote></div>)}</details>}</div>
+ return <div className="field-content"><h4>{labels[field]}</h4><p>{card.fields[field]||'待明确'}</p><AIOrigin card={card} field={field}/>{refs.length>0&&<details className="field-trace"><summary>查看依据 · {refs.length}</summary>{refs.map((ref,i)=><div className="trace-item" key={i}><span className="tiny muted">{ref.materialId?materials.find(m=>m.id===ref.materialId)?.name||ref.materialId:ref.messageId?'讨论消息 '+ref.messageId:'来源依据'}{ref.location?' · '+ref.location:''}</span><blockquote>{ref.quote}</blockquote></div>)}</details>}</div>
 }
 function ConfirmationRecords({card}:{card:Card}){return <details className="records"><summary><History size={14}/> 确认记录 · {card.confirmations.length}</summary>{card.confirmations.length?card.confirmations.slice().reverse().map(c=><div className="record" key={c.id}><div className="between"><strong>{ROLES[c.role]}</strong><Badge tone={c.result==='通过'?'success':c.result==='要求修改'?'warning':'neutral'}>{c.result}</Badge></div><span className="tiny muted">r{c.revision} · 确认轮次 {c.round} · {date(c.createdAt)}{c.revision!==card.revision||c.round!==card.round?' · 历史记录':''}</span>{c.comment&&<p>{c.comment}</p>}</div>):<p className="tiny muted">尚无确认记录。</p>}</details>}
 function Chat({project:p,card:c,role,busy,jobs,modelConfigured,setCard,mutate,suggest,goMaterials,goDeliverables}:{project:Project;card?:Card;role:Role;busy:boolean;jobs:Job[];modelConfigured:boolean;setCard:(id:string)=>void;mutate:Mutation;suggest:(id:string)=>Promise<boolean>;goMaterials:()=>void;goDeliverables:()=>void}){
